@@ -6,23 +6,32 @@
 </head>
 <body>
 <div class="app">
-<header class="header"><a class="wordmark" href="./" aria-label="USED 홈">USED<span></span></a><div class="header-actions"><button class="location-button" id="location-open"><span data-icon="pin"></span><span id="location-label">전국</span><span data-icon="chevron"></span></button><button class="icon-button" id="info-open" aria-label="서비스 안내"><span data-icon="info"></span></button></div></header>
+<header class="header" id="home-header"><a class="wordmark" href="./" aria-label="USED 홈">USED<span></span></a><div class="header-actions"><button class="location-button" id="location-open"><span data-icon="pin"></span><span id="location-label">전국</span><span data-icon="chevron"></span></button><button class="icon-button" id="info-open" aria-label="서비스 안내"><span data-icon="info"></span></button></div></header>
+<header class="results-header" id="results-header" aria-label="검색 도구" hidden>
+<div class="results-search-row"><button class="icon-button" id="results-back" aria-label="뒤로 가기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button><form id="search-form" class="search-box" role="search"><span data-icon="search"></span><input id="query" type="search" maxlength="80" placeholder="어떤 물건을 찾고 있나요?" aria-label="검색어" autocomplete="off" enterkeyhint="search"><button type="submit" aria-label="검색"><span data-icon="arrow"></span></button></form></div>
+<div class="results-toolbar"><button id="filters-open" class="filter-main"><span data-icon="sliders"></span><span id="filter-summary">필터</span><span id="filter-count" hidden></span><span data-icon="chevron"></span></button><label class="sort-control"><span class="sr-only">정렬</span><select id="sort"><option value="recent">최신순</option><option value="price-asc">낮은 가격순</option><option value="price-desc">높은 가격순</option><option value="distance">가까운순</option></select></label></div>
+</header>
 <main>
+<section id="home-screen" aria-label="홈">
 <section class="intro"><p class="eyebrow">좋은 발견의 시작</p><h1>찾던 중고,<br>이제 한곳에서.</h1><p class="intro-desc">여러 곳을 오가지 말고, 한 번에 찾아보세요.</p><div class="intro-art" aria-hidden="true"><div class="art-card back">U</div><div class="art-card front"><svg viewBox="0 0 80 80"><circle cx="34" cy="34" r="17"/><path d="m47 47 16 16"/></svg></div><span class="spark one">✦</span><span class="spark two">✦</span></div></section>
 <div class="kind-tabs" aria-label="검색 종류"><button data-kind="goods" class="active">중고물품</button><button data-kind="car">중고차<span class="new-badge">NEW</span></button></div>
-<form id="search-form" class="search-box" role="search"><span data-icon="search"></span><input id="query" type="search" maxlength="100" placeholder="어떤 물건을 찾고 있나요?" aria-label="검색어" autocomplete="off" enterkeyhint="search"><button type="submit" aria-label="검색"><span data-icon="arrow"></span></button></form>
+<form id="home-search-form" class="search-box" role="search"><span data-icon="search"></span><input id="home-query" type="search" maxlength="80" placeholder="어떤 물건을 찾고 있나요?" aria-label="홈 검색어" autocomplete="off" enterkeyhint="search"><button type="submit" aria-label="검색"><span data-icon="arrow"></span></button></form>
 <div class="suggestions" id="suggestions"></div>
-<section class="browse" aria-label="매물 검색">
+<p class="home-search-note" id="home-search-note"></p>
+<div class="home-services"><div class="home-services-heading"><h2>여러 서비스의 매물을 한곳에서</h2><button data-page="services" aria-label="서비스 모아보기">전체 보기<span data-icon="chevron"></span></button></div><p>당근 · 중고나라 · 번개장터 · 헬로마켓<br>엔카 · KB차차차 · K Car</p><button class="home-demo" id="home-demo">샘플로 둘러보기<span data-icon="arrow"></span></button></div>
+</section>
+<section class="browse" id="browse-screen" aria-label="매물 검색" hidden>
+<div class="kind-tabs results-kind-tabs" aria-label="검색 종류"><button data-kind="goods" class="active">중고물품</button><button data-kind="car">중고차</button></div>
 <div class="segment" id="source-tabs" aria-label="서비스 선택"></div>
-<div class="filter-row"><button id="filters-open" class="filter-main"><span data-icon="sliders"></span><span id="filter-summary">필터</span><span id="filter-count" hidden></span><span data-icon="chevron"></span></button><button class="chip" id="price-open">가격<span data-icon="chevron"></span></button><button class="chip" id="nearby-open"><span data-icon="pin"></span>내 주변</button></div>
+<div class="filter-row"><button class="chip" id="price-open">가격<span data-icon="chevron"></span></button><button class="chip" id="nearby-open"><span data-icon="pin"></span>내 주변</button></div>
 <div class="mode-banner"><span class="mode-dot"></span><div><strong id="mode-title">검색하면 실제 매물을 찾아요</strong><p id="mode-copy">서비스별 연결 상태와 가져온 결과를 함께 보여 드려요.</p></div><button id="mode-switch">샘플 체험<span data-icon="chevron"></span></button></div>
-<div class="results-heading"><div><h2 id="results-title">어떤 물건을 찾고 있나요?</h2><span id="result-count"></span></div><label class="sort-control"><span class="sr-only">정렬</span><select id="sort"><option value="recent">최신순</option><option value="price-asc">낮은 가격순</option><option value="price-desc">높은 가격순</option><option value="distance">가까운순</option></select></label></div>
+<div class="results-heading"><div><h2 id="results-title">어떤 물건을 찾고 있나요?</h2><span id="result-count"></span></div></div>
 <div id="results" class="product-grid" aria-live="polite"></div>
 <section id="external" class="external" hidden><div class="external-title"><span data-icon="globe"></span><div><h3>각 서비스에서 바로 찾아보기</h3><p>원문 사이트에서 최신 매물을 확인해 보세요.</p></div></div><div id="external-links"></div><p class="external-note">선택한 필터는 USED 내부 검색에 적용돼요. 외부 사이트에서는 필터를 다시 설정해 주세요.</p></section>
-<div class="footnote"><span class="brand-small">USED</span><p>새 주인을 만나면, 또 새로운 시작.<br>거래와 결제는 제공하지 않아요.</p><button id="install-open">홈 화면에 추가하기<span data-icon="arrow"></span></button></div>
 </section>
+<div class="footnote"><span class="brand-small">USED</span><p>새 주인을 만나면, 또 새로운 시작.<br>거래와 결제는 제공하지 않아요.</p><button id="install-open">홈 화면에 추가하기<span data-icon="arrow"></span></button></div>
 </main>
-<nav class="bottom-nav" aria-label="주 메뉴"><button data-page="search" class="active"><span data-icon="search"></span><span>찾아보기</span></button><button data-page="saved"><span data-icon="heart"></span><span>찜한 매물 <b id="saved-count"></b></span></button><button data-page="services"><span data-icon="grid"></span><span>서비스 모아보기</span></button></nav>
+<nav class="bottom-nav" aria-label="주 메뉴"><button data-page="home" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z"/></svg><span>홈</span></button><button data-page="saved"><span data-icon="heart"></span><span>찜한 매물 <b id="saved-count"></b></span></button><button data-page="services"><span data-icon="grid"></span><span>서비스 모아보기</span></button></nav>
 </div>
 <dialog id="sheet" aria-labelledby="sheet-title"><div class="sheet-handle"></div><div class="sheet-header"><h2 id="sheet-title"></h2><button id="sheet-close" class="icon-button" aria-label="닫기"><span data-icon="close"></span></button></div><div id="sheet-body"></div><div id="sheet-footer"></div></dialog>
 <div id="toast" role="status"></div><script type="module" src="./src/app.js"></script>

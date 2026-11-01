@@ -1,4 +1,4 @@
-const CACHE='used-shell-v2';
+const CACHE='used-shell-v3';
 const SHELL=['./','./index.html','./src/styles.css','./src/app.js','./src/search.js','./src/config.js','./data/demo.json','./assets/apple-touch-icon.png','./assets/icon-192.png','./assets/icon-512.png','./assets/favicon.svg','./assets/product-placeholder.svg','./manifest.webmanifest'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('used-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
