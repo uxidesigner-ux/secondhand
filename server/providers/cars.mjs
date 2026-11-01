@@ -1,4 +1,5 @@
 import { createCipheriv } from 'node:crypto';
+import https from 'node:https';
 /**
  * Encar's unauthenticated public search, observed in car.encar.com/list/car.
  * iNav Search.QueryWithPlaceholder supplies the keyword expression used below.
@@ -29,9 +30,9 @@ async function carJson(response) {
 function logCarFailure(source, error, startedAt) {
   console.warn(JSON.stringify({
     event: 'car_provider_failure', source,
-    stage: ['fetch','http','json','schema'].includes(error?.stage) ? error.stage : 'provider',
+    stage: ['fetch','http','body','json','schema'].includes(error?.stage) ? error.stage : 'provider',
     elapsedMs: Math.max(0, Date.now() - startedAt),
-    errorName: safeToken(error?.name), causeCode: safeToken(error?.cause?.code),
+    errorName: safeToken(error?.name), causeCode: safeToken(error?.cause?.code || error?.code),
     upstreamStatus: Number.isInteger(error?.upstreamStatus) ? error.upstreamStatus : null,
     contentType: typeof error?.contentType === 'string' ? error.contentType : null,
   }));
@@ -80,13 +81,66 @@ export function parseEncarResponse(payload, collectedAt) {
   return { items: [...unique.values()], total: Number(payload.Count) };
 }
 
+// Use the same public URL, but preserve HTTP 407 as an observable response.
+// Fetch/undici converts 407 into an opaque network failure. No retries or redirects.
+function readEncarPayload(url, signal) {
+  const maxBytes = 2 * 1024 * 1024;
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason); return; }
+    let settled = false;
+    const fail = error => { if (!settled) { settled = true; reject(error); } };
+    let request;
+    try {
+      request = https.get(url, {
+        headers: { Accept: 'application/json' }, signal, rejectUnauthorized: true,
+      }, response => {
+        const type = String(response.headers['content-type'] || '').split(';')[0].trim();
+        const meta = { upstreamStatus: response.statusCode,
+          contentType: /^[A-Za-z0-9.+-]+\/[A-Za-z0-9.+-]+$/.test(type) ? type : null };
+        const responseError = (message, stage) => Object.assign(new Error(message), meta, {stage});
+        response.on('error', error => fail(Object.assign(error, meta, {stage:'body'})));
+        response.on('aborted', () => fail(responseError('Upstream response interrupted', 'body')));
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          fail(responseError('Upstream HTTP failure', 'http'));
+          response.destroy();
+          return;
+        }
+        if (Number(response.headers['content-length']) > maxBytes) {
+          fail(responseError('Upstream response exceeds size limit', 'body'));
+          response.destroy();
+          return;
+        }
+        let bytes = 0;
+        const chunks = [];
+        response.on('data', chunk => {
+          if (settled) return;
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          bytes += buffer.length;
+          if (bytes > maxBytes) {
+            fail(responseError('Upstream response exceeds size limit', 'body'));
+            response.destroy();
+            return;
+          }
+          chunks.push(buffer);
+        });
+        response.on('end', () => {
+          if (settled) return;
+          try {
+            const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            settled = true;
+            resolve(payload);
+          } catch (error) { fail(Object.assign(error, meta, {stage:'json'})); }
+        });
+      });
+      request.on('error', error => fail(Object.assign(error, {stage:'fetch'})));
+    } catch (error) { fail(Object.assign(error, {stage:'fetch'})); }
+  });
+}
+
 async function searchEncar({ query, limit, signal }) {
   const timeout = AbortSignal.timeout(9000);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  const response = await fetchCar(buildEncarUrl(query, limit), {
-    headers: { Accept: 'application/json' }, signal: combined, redirect: 'error',
-  });
-  const payload = await carJson(response);
+  const payload = await readEncarPayload(buildEncarUrl(query, limit), combined);
   const {items,total} = parseEncarResponse(payload, new Date().toISOString());
   return { items, provider: { source: 'encar', status: 'ok', count: items.length, total,
     message: '엔카 공개 검색 결과예요. 일부 결과를 표시하며 리스·렌트는 제외해요. 판매 상태와 최신 가격은 원문에서 확인해 주세요.' } };
@@ -201,8 +255,8 @@ export async function searchCars({ query = '', source = 'all', limit = 24, signa
   const results = await Promise.all(selected.map(async provider => {
     const startedAt = Date.now();
     try { return await ({encar:searchEncar,kb:searchKb,kcar:searchKcar}[provider])({query,limit,signal}); }
-    catch (error) { logCarFailure(provider, error, startedAt); return {items: [],provider: {source: provider,status: 'error',count: 0,
-      message: error?.name === 'AbortError' || error?.name === 'TimeoutError' ? `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 응답이 지연되고 있어요. 다시 검색해 주세요.` : `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 검색에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.`}}; }
+    catch (error) { logCarFailure(provider, error, startedAt); const restricted = provider === 'encar' && [403,407,429].includes(error?.upstreamStatus); return {items: [],provider: {source: provider,status: restricted ? 'unavailable' : 'error',count: 0,
+      message: restricted ? '엔카의 서버 조회가 제한되어 있어요. 원문 서비스에서 확인해 주세요.' : error?.name === 'AbortError' || error?.name === 'TimeoutError' ? `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 응답이 지연되고 있어요. 다시 검색해 주세요.` : `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 검색에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.`}}; }
   }));
   return { items: results.flatMap(r => r.items), providers: results.map(r => r.provider) };
 }

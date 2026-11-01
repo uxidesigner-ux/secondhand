@@ -1,3 +1,4 @@
+import {initRefresh} from './refresh.js';
 import {filterListings, distanceKm, validateListing} from './search.js';
 import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,protectedSearchUrl} from './config.js';
 const $=s=>document.querySelector(s);
@@ -200,5 +201,5 @@ $('#info-open').onclick=info;$('#install-open').onclick=install;
 $('#home-header .wordmark').onclick=e=>{e.preventDefault();navigate('home',{replace:state.page==='home'});};
 for(const id of ['query','home-query'])$('#'+id).maxLength=80;
 if(REQUIRES_LOGIN_REDIRECT)for(const id of ['search-form','home-search-form'])$('#'+id+' button[type=submit]').setAttribute('aria-label','로그인 후 검색');
-paintIcons();restoreRoute(null);
+paintIcons();initRefresh();restoreRoute(history.state?.usedRoute?history.state:null);
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDecipheriv} from 'node:crypto';
+import https from 'node:https';
+import {EventEmitter} from 'node:events';
 import {buildEncarUrl, normalizeEncarCar, parseEncarResponse, searchCars, selectKbClasses, parseKbListings, buildKcarRequest, parseKcarResponse} from '../server/providers/cars.mjs';
 const fixture = {
   Id:'42814979',Manufacturer:'현대',Model:'더 뉴 그랜저 IG',Badge:'2.5',BadgeDetail:'익스클루시브',
@@ -58,30 +60,81 @@ test('K Car normalizes only public vehicle fields and rejects malformed rows',()
  assert.equal(parseKcarResponse({data:{totalCnt:1,rows:[{...raw,rentRegYn:'Y'}]}}).items.length,0);
 });
 
-test('car upstream diagnostics record HTTP403 without search terms, URLs or body', async t => {
- const query='PRIVATE_QUERY_987';
- const logs=[];
- t.mock.method(globalThis,'fetch',async()=>new Response('PRIVATE_SELLER_BODY_654',{status:403,headers:{'content-type':'text/html; charset=utf-8'}}));
+function mockHttps(t,{status=200,body=JSON.stringify({Count:1,SearchResults:[fixture]}),headers={'content-type':'application/json'},networkError=null,stall=false}={}) {
+ const calls=[];
+ t.mock.method(https,'get',(url,options,callback)=>{
+  const request=new EventEmitter();calls.push({url:String(url),options});
+  const onAbort=()=>queueMicrotask(()=>request.emit('error',Object.assign(new Error('aborted'),{name:'AbortError',cause:options.signal.reason})));
+  options.signal?.addEventListener('abort',onAbort,{once:true});
+  queueMicrotask(()=>{
+   if(networkError){options.signal?.removeEventListener('abort',onAbort);request.emit('error',networkError);return;}
+   if(stall)return;
+   const response=new EventEmitter();response.statusCode=status;response.headers=headers;response.destroy=()=>{response.destroyed=true;options.signal?.removeEventListener('abort',onAbort);};
+   callback(response);
+   if(!response.destroyed){response.emit('data',Buffer.from(body));if(!response.destroyed)response.emit('end');}
+   options.signal?.removeEventListener('abort',onAbort);
+  });
+  return request;
+ });
+ return calls;
+}
+
+test('Encar HTTP407/403/429 stay unavailable without retries and diagnostics omit private data', async t => {
+ for(const status of [407,403,429]) {
+  await t.test(String(status),async t=>{
+   const query='PRIVATE_QUERY_987';const logs=[];
+   const calls=mockHttps(t,{status,body:'PRIVATE_SELLER_BODY_654',headers:{'content-type':'text/html; charset=utf-8'}});
+   t.mock.method(console,'warn',value=>logs.push(value));
+   const result=await searchCars({query,source:'encar'});
+   assert.equal(result.providers[0].status,'unavailable');assert.equal(calls.length,1);assert.equal(result.items.length,0);
+   assert.equal(result.providers[0].message,'엔카의 서버 조회가 제한되어 있어요. 원문 서비스에서 확인해 주세요.');
+   const diagnostic=JSON.parse(logs[0]);
+   assert.equal(diagnostic.event,'car_provider_failure');assert.equal(diagnostic.source,'encar');assert.equal(diagnostic.upstreamStatus,status);
+   assert.equal(diagnostic.stage,'http');assert.equal(diagnostic.contentType,'text/html');assert.equal(diagnostic.errorName,'Error');assert.equal(diagnostic.causeCode,null);
+   assert.ok(Number.isInteger(diagnostic.elapsedMs)&&diagnostic.elapsedMs>=0);
+   assert.deepEqual(Object.keys(diagnostic).sort(),['event','source','stage','elapsedMs','errorName','causeCode','upstreamStatus','contentType'].sort());
+   assert.equal(logs[0].includes(query),false);assert.equal(logs[0].includes('PRIVATE_SELLER_BODY'),false);assert.equal(logs[0].includes('https://'),false);
+  });
+ }
+});
+test('Encar normal HTTPS200 parses cars with strict TLS and no auth or spoofing headers',async t=>{
+ const calls=mockHttps(t);
+ const result=await searchCars({query:'그랜저',source:'encar'});
+ assert.equal(result.providers[0].status,'ok');assert.equal(result.items.length,1);assert.equal(result.items[0].id,'encar-42814979');
+ assert.equal(calls.length,1);assert.equal(new URL(calls[0].url).origin,'https://api.encar.com');
+ assert.equal(calls[0].options.rejectUnauthorized,true);assert.deepEqual(calls[0].options.headers,{Accept:'application/json'});
+});
+test('Encar redirect response is not followed or authenticated',async t=>{
+ const calls=mockHttps(t,{status:302,headers:{location:'https://other.test/challenge'}});
+ const logs=[];t.mock.method(console,'warn',value=>logs.push(value));
+ const result=await searchCars({query:'그랜저',source:'encar'});
+ assert.equal(result.providers[0].status,'error');assert.equal(calls.length,1);assert.equal(JSON.parse(logs[0]).upstreamStatus,302);
+ assert.equal(logs[0].includes('other.test'),false);
+});
+test('Encar response body is bounded at2MB',async t=>{
+ const calls=mockHttps(t,{body:'x'.repeat(2*1024*1024+1)});
+ const logs=[];t.mock.method(console,'warn',value=>logs.push(value));
+ const result=await searchCars({query:'그랜저',source:'encar'});
+ assert.equal(result.providers[0].status,'error');assert.equal(calls.length,1);assert.equal(JSON.parse(logs[0]).stage,'body');
+});
+test('Encar stalled HTTPS request ends on the supplied abort without retries',async t=>{
+ const calls=mockHttps(t,{stall:true});const logs=[];
  t.mock.method(console,'warn',value=>logs.push(value));
- const result=await searchCars({query,source:'encar'});
- assert.equal(result.providers[0].status,'error');
- assert.equal(logs.length,1);
- const diagnostic=JSON.parse(logs[0]);
- assert.equal(diagnostic.event,'car_provider_failure');
- assert.equal(diagnostic.source,'encar');assert.equal(diagnostic.upstreamStatus,403);
- assert.equal(diagnostic.stage,'http');assert.equal(diagnostic.contentType,'text/html');
- assert.equal(diagnostic.errorName,'Error');assert.equal(diagnostic.causeCode,null);
- assert.ok(Number.isInteger(diagnostic.elapsedMs)&&diagnostic.elapsedMs>=0);
- assert.deepEqual(Object.keys(diagnostic).sort(),['event','source','stage','elapsedMs','errorName','causeCode','upstreamStatus','contentType'].sort());
- assert.equal(logs[0].includes(query),false);assert.equal(logs[0].includes('PRIVATE_SELLER_BODY'),false);assert.equal(logs[0].includes('https://'),false);
+ const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15);
+ const started=Date.now();
+ try{
+  const result=await searchCars({query:'그랜저',source:'encar',signal:controller.signal});
+  assert.equal(result.providers[0].status,'error');assert.equal(calls.length,1);assert.ok(Date.now()-started<500);
+  assert.equal(JSON.parse(logs[0]).errorName,'AbortError');
+ }finally{clearTimeout(timer);}
 });
 test('car network diagnostics keep cause codes while omitting raw error messages', async t => {
  const logs=[];
- t.mock.method(globalThis,'fetch',async()=>{throw Object.assign(new TypeError('failed URL with PRIVATE_QUERY'),{cause:{code:'UND_ERR_CONNECT_TIMEOUT',message:'private upstream details'}});});
+ mockHttps(t,{networkError:Object.assign(new TypeError('failed URL with PRIVATE_QUERY'),{code:'ECONNRESET',cause:{message:'private upstream details'}})});
  t.mock.method(console,'warn',value=>logs.push(value));
  await searchCars({query:'PRIVATE_QUERY',source:'encar'});
  const diagnostic=JSON.parse(logs[0]);
  assert.equal(diagnostic.stage,'fetch');assert.equal(diagnostic.errorName,'TypeError');
- assert.equal(diagnostic.causeCode,'UND_ERR_CONNECT_TIMEOUT');assert.equal(diagnostic.upstreamStatus,null);
+ assert.equal(diagnostic.causeCode,'ECONNRESET');assert.equal(diagnostic.upstreamStatus,null);
  assert.equal(logs[0].includes('PRIVATE_QUERY'),false);assert.equal(logs[0].includes('private upstream'),false);
 });
