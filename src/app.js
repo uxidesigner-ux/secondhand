@@ -1,9 +1,9 @@
-import {initRefresh} from './refresh.js?v=1.2.2';
-import {mountCarDetail} from './car-detail.js?v=1.2.2';
+import {initRefresh} from './refresh.js?v=1.2.3';
+import {mountCarDetail} from './car-detail.js?v=1.2.3';
 import {resolveDetailItem} from './detail-route.js';
-import {recoverEncar} from './encar-fallback.js?v=1.2.2';
+import {recoverEncar} from './encar-fallback.js?v=1.2.3';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.2.2';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.2.3';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -143,7 +143,10 @@ function render(){
  $('#suggestions').innerHTML='<span>추천 검색</span>'+(state.kind==='car'?['그랜저','쏘렌토','BMW','테슬라']:['아이폰','에어팟','카메라','의자']).map(x=>`<button data-suggest="${x}">${x}</button>`).join('');
  $('#source-tabs').innerHTML=[['all','전체'],...sourceKeys().map(k=>[k,k==='other'?'기타':sources[k].name])].map(([key,name])=>`<button data-source="${key}" aria-pressed="${state.source===key}" class="${state.source===key?'active':''}">${name}</button>`).join('');
  const summary=filterSummary();$('#filter-summary').textContent=summary.join(' · ')||'필터';$('#filters-open').title=summary.join(' · ')||'필터 설정';$('#filters-open').classList.toggle('selected',!!summary.length);$('#filter-count').hidden=!summary.length;$('#filter-count').textContent=summary.length;
- $('#location-label').textContent=state.coords?'내 위치 기준':state.region||'전국';$('#nearby-open').classList.toggle('selected',!!state.coords);
+ const locationText=state.coords?`내 위치 · ${state.radius}km`:state.region;
+ $('#location-label').textContent=locationText||'전국';$('#nearby-label').textContent=locationText||'내 주변';
+ $('#nearby-open').classList.toggle('selected',Boolean(locationText));
+ for(const id of ['location-open','nearby-open']){const button=$('#'+id);button.title=locationText||'전국';button.setAttribute('aria-label',`지역 설정: ${locationText||'전국'}`);}
  $('#saved-count').textContent=state.saved.size||'';
  const isSaved=state.page==='saved';
  $('#search-status-title').textContent=state.loading?'여러 서비스에서 매물을 찾고 있어요':state.error?'검색 연결을 확인해 주세요':state.requested?'실제 검색 결과를 모았어요':REQUIRES_LOGIN_REDIRECT?'로그인 후 실제 매물을 찾아요':'검색하면 실제 매물을 찾아요';
