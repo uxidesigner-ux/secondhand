@@ -1,12 +1,12 @@
 {
   "name": "used-search",
-  "version": "1.2.4",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
     "start": "python3 -m http.server 4173",
-    "check": "node --check src/app.js && node --check src/search.js && node --check api/search.js && node --check server/handler.mjs && node --check api/detail.js && node --check server/detail-handler.mjs && node --check server/providers/kb-detail.mjs && node --check src/car-detail.js && node --check src/detail-route.js && node --check src/entry.js && node --check src/config.js && node --check src/providers/encar.js && node --check src/encar-fallback.js && node --check src/location-state.js && node --check src/location-lookup.js && node --check src/region-geocoder.js",
+    "check": "node --check src/app.js && node --check src/search.js && node --check api/search.js && node --check server/handler.mjs && node --check api/detail.js && node --check server/detail-handler.mjs && node --check server/providers/kb-detail.mjs && node --check server/providers/encar-detail.mjs && node --check server/providers/kcar-detail.mjs && node --check src/car-detail.js && node --check src/detail-route.js && node --check src/entry.js && node --check src/config.js && node --check src/providers/encar.js && node --check src/providers/encar-detail.js && node --check src/encar-fallback.js && node --check src/location-state.js && node --check src/location-lookup.js && node --check src/region-geocoder.js",
     "dev": "node server/dev.mjs"
   }
 }

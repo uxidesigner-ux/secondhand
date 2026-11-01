@@ -1,4 +1,6 @@
-/** KB detail presentation. All network URLs are fixed or validated before use. */
+import {carDetailIdentity} from './detail-route.js';
+
+/** Shared car detail presentation. All network URLs are fixed or validated. */
 const PLACEHOLDER = './assets/product-placeholder.svg';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const text = (value, limit = 500) => typeof value === 'string' ? value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, limit) : '';
@@ -6,28 +8,21 @@ const amount = value => Number.isSafeInteger(value) && value >= 0 ? value.toLoca
 const dateLabel = value => typeof value === 'string' && Number.isFinite(Date.parse(value))
   ? new Date(value).toLocaleString('ko-KR', {year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '확인 시각 정보 없음';
 
-function identity(item) {
-  if (!item || item.source !== 'kb' || item.kind !== 'car' || item.demo === true) return null;
-  const match = /^kb-([1-9]\d{0,11})$/.exec(String(item.id));
-  if (!match) return null;
-  try {
-    const url = new URL(item.url);
-    if (url.protocol !== 'https:' || url.hostname !== 'www.kbchachacha.com' || url.port || url.username || url.password
-      || url.pathname !== '/public/car/detail.kbc' || url.searchParams.getAll('carSeq').length !== 1 || url.searchParams.get('carSeq') !== match[1]) return null;
-    return {id: item.id, number: match[1], sourceUrl: `https://www.kbchachacha.com/public/car/detail.kbc?carSeq=${match[1]}`};
-  } catch { return null; }
-}
-
-function photoUrl(value, number) {
-  if (typeof value !== 'string') return null;
+function photoUrl(value, expected) {
+  if (typeof value !== 'string' || value.length > 2048) return null;
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || url.hostname !== 'img.kbchachacha.com' || url.port || url.username || url.password
-      || !url.pathname.startsWith('/IMG/carimg/') || !/^\/[A-Za-z0-9_./-]+$/.test(url.pathname)
-      || !new RegExp(`^${number}_[A-Za-z0-9_.-]+\\.(?:jpe?g|png|webp)$`, 'i').test(url.pathname.split('/').pop())) return null;
+    if (url.protocol !== 'https:' || url.port || url.username || url.password || !/^\/[A-Za-z0-9_./-]+$/.test(url.pathname)) return null;
+    const {source, number} = expected;
+    if (source === 'kb' && (url.hostname !== 'img.kbchachacha.com' || !url.pathname.startsWith('/IMG/carimg/')
+      || !new RegExp(`^${number}_[A-Za-z0-9_.-]+\\.(?:jpe?g|png|webp)$`, 'i').test(url.pathname.split('/').pop()))) return null;
+    if (source === 'encar' && (url.hostname !== 'ci.encar.com'
+      || !new RegExp(`^/carpicture\\d*/pic\\d+/${number}_\\d+\\.(?:jpe?g|png|webp)$`, 'i').test(url.pathname))) return null;
+    if (source === 'kcar' && (url.hostname !== 'img.kcar.com'
+      || !new RegExp(`^/carpicture/carpicture\\d+/pic\\d+/kcar(?:M)?_${number.slice(2)}_\\d+\\.(?:jpe?g|png|webp)$`, 'i').test(url.pathname))) return null;
     const result = new URL(url.origin + url.pathname);
     const width = url.searchParams.get('width');
-    if (width && /^\d{2,4}$/.test(width)) result.searchParams.set('width', String(Math.min(1600, Number(width))));
+    if (source === 'kb' && width && /^\d{2,4}$/.test(width)) result.searchParams.set('width', String(Math.min(1600, Number(width))));
     return result.href;
   } catch { return null; }
 }
@@ -40,11 +35,11 @@ function rows(value, max = 40) {
 
 /** Pure validator/sanitizer. Never infer accident status or unreported options. */
 export function normalizeCarDetail(raw, expectedItem) {
-  const expected = identity(expectedItem);
-  if (!expected || !raw || raw.source !== 'kb' || raw.id !== expected.id || raw.sourceUrl !== expected.sourceUrl) return null;
+  const expected = carDetailIdentity(expectedItem);
+  if (!expected || !raw || Array.isArray(raw) || raw.source !== expected.source || raw.id !== expected.id || raw.sourceUrl !== expected.sourceUrl) return null;
   const title = text(raw.title, 250);
   if (!title || (raw.price != null && (!Number.isSafeInteger(raw.price) || raw.price < 0))) return null;
-  const photos = [...new Set((Array.isArray(raw.photos) ? raw.photos.slice(0,80) : []).map(photo => photoUrl(photo, expected.number)).filter(Boolean))].slice(0,40);
+  const photos = [...new Set((Array.isArray(raw.photos) ? raw.photos.slice(0,80) : []).map(photo => photoUrl(photo, expected)).filter(Boolean))].slice(0,40);
   const optionGroups = (Array.isArray(raw.optionGroups) ? raw.optionGroups : []).slice(0,12).map(group => ({
     label: text(group?.label,80),
     items: [...new Set((Array.isArray(group?.items) ? group.items.slice(0,100) : []).map(option => {
@@ -54,7 +49,7 @@ export function normalizeCarDetail(raw, expectedItem) {
     }).filter(Boolean))].slice(0,80),
   })).filter(group => group.label && group.items.length);
   return {
-    source:'kb', id:expected.id, sourceUrl:expected.sourceUrl, title, price:raw.price ?? null, photos,
+    source:expected.source, id:expected.id, sourceUrl:expected.sourceUrl, title, price:raw.price ?? null, photos,
     specs:rows(raw.specs), optionGroups,
     highlights:[...new Set((Array.isArray(raw.highlights) ? raw.highlights.slice(0,32) : []).map(value => text(value,160)).filter(Boolean))].slice(0,16),
     inspection:rows(raw.inspection,24),
@@ -62,6 +57,53 @@ export function normalizeCarDetail(raw, expectedItem) {
     description:text(raw.description,12000)||null,
     fetchedAt:typeof raw.fetchedAt === 'string' && Number.isFinite(Date.parse(raw.fetchedAt)) ? raw.fetchedAt : null,
   };
+}
+
+const browserEncarDetail = async options => {
+  const {fetchEncarDetailInBrowser} = await import('./providers/encar-detail.js?v=1.3.0');
+  return fetchEncarDetailInBrowser(options);
+};
+const detailError = (code, message) => Object.assign(new Error(message), {code});
+const checkAborted = signal => { if (signal?.aborted) throw new DOMException('상세정보 조회가 취소됐어요.', 'AbortError'); };
+
+/** Load one exact car through the protected same-origin API. Browser Encar
+ * recovery requires the API's explicit provider-failure contract, never an
+ * authentication error, rate-limit response, HTML page or unknown JSON. */
+export async function fetchCarDetail({item, signal, origin = globalThis.location?.origin,
+  fetchImpl = globalThis.fetch, fetchEncarDetail = browserEncarDetail} = {}) {
+  const expected = carDetailIdentity(item);
+  if (!expected) throw detailError('DETAIL_ID', '올바른 차량을 선택해 주세요.');
+  checkAborted(signal);
+  const url = new URL('/api/detail', origin);
+  url.searchParams.set('source', expected.source);url.searchParams.set('id', expected.number);
+  const response = await fetchImpl(url, {signal, cache:'no-store', credentials:'same-origin', redirect:'error', headers:{Accept:'application/json'}});
+  const isJson = /^application\/json(?:\s*;|$)/i.test(response.headers?.get('content-type') || '');
+  const payload = isJson ? await response.json().catch(() => null) : null;
+  checkAborted(signal);
+  let raw = payload?.detail;
+  if (!response.ok) {
+    const recoverable = expected.source === 'encar' && [502,503].includes(response.status)
+      && payload?.code === 'DETAIL_UPSTREAM_UNAVAILABLE' && payload.source === expected.source && payload.id === expected.number;
+    if (recoverable) {
+      try { raw = await fetchEncarDetail({id:expected.number, signal}); }
+      catch {
+        checkAborted(signal);
+        throw detailError('DETAIL_UNAVAILABLE', '엔카 상세정보에 연결하지 못했어요. 아래 엔카에서 보기 버튼으로 확인해 주세요.');
+      }
+    } else if ([401,403].includes(response.status)) {
+      throw detailError('DETAIL_AUTH', '로그인이 필요해 상세정보를 가져오지 못했어요. 원문을 확인하거나 로그인 후 다시 시도해 주세요.');
+    } else if (response.status === 429) {
+      throw detailError('DETAIL_RATE_LIMIT', '요청이 많아 상세정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요.');
+    } else if ([404,410].includes(response.status)) {
+      throw detailError('DETAIL_NOT_FOUND', `${expected.sourceName}에서 차량 상세정보를 찾을 수 없어요. 아래 원문 버튼으로 판매 여부를 확인해 주세요.`);
+    } else {
+      throw detailError('DETAIL_UNAVAILABLE', `${expected.sourceName} 상세정보에 연결하지 못했어요. 아래 ${expected.sourceName}에서 보기 버튼으로 확인해 주세요.`);
+    }
+  }
+  checkAborted(signal);
+  const detail = normalizeCarDetail(raw, item);
+  if (!detail) throw detailError('DETAIL_FORMAT', `${expected.sourceName} 차량 상세정보를 확인하지 못했어요. 원문을 확인하거나 다시 시도해 주세요.`);
+  return detail;
 }
 
 function factsMarkup(facts) {
@@ -81,12 +123,12 @@ function baseFacts(item) {
 /** Mount in the detail page. Call cleanup when leaving or replacing the route. */
 export function mountCarDetail({item, container, onUpdate} = {}) {
   if (!container || typeof container.replaceChildren !== 'function') return () => {};
-  const expected = identity(item);
-  const initialPhoto = expected ? photoUrl(item.image, expected.number) : null;
+  const expected = carDetailIdentity(item);
+  const initialPhoto = expected ? photoUrl(item.image, expected) : null;
   const root = document.createElement('div');
   root.className = 'car-detail';
   root.innerHTML = `<div class="car-detail__gallery" aria-label="차량 사진"></div>
-    <div class="car-detail__identity"><span class="car-detail__source">KB차차차 · 실제 매물</span><h3 class="car-detail__title"></h3><p class="car-detail__price"></p><p class="car-detail__price-note">차량 표시 가격 · 이전비 등 추가 비용은 원문에서 확인해 주세요.</p></div>
+    <div class="car-detail__identity"><span class="car-detail__source">${esc(expected?.sourceName || '차량')} · 실제 매물</span><h3 class="car-detail__title"></h3><p class="car-detail__price"></p><p class="car-detail__price-note">차량 표시 가격 · 이전비 등 추가 비용은 원문에서 확인해 주세요.</p></div>
     <div class="car-detail__highlights"></div>
     <div class="car-detail__load" role="status" aria-live="polite"><span class="car-detail__spinner" aria-hidden="true"></span><p></p><button type="button" class="car-detail__retry" hidden>상세정보 다시 불러오기</button></div>
     <section class="car-detail__section car-detail__basic"><h4>차량 정보</h4><div class="car-detail__specs"></div></section>
@@ -251,7 +293,7 @@ export function mountCarDetail({item, container, onUpdate} = {}) {
     const description=$('.car-detail__description');description.hidden=!detail.description;
     if(detail.description)description.innerHTML=`<h4>차량 설명</h4><p class="car-detail__description-text">${esc(detail.description)}</p>`;
     $('.car-detail__updated').textContent=`상세정보 확인: ${dateLabel(detail.fetchedAt)}. 정보는 확인 이후 변경될 수 있어요. 판매 여부와 최종 조건은 원문에서 확인해 주세요.`;
-    loadState('상세정보를 확인했어요.');
+    loadState(`${expected.sourceName} 상세정보를 확인했어요.`);
     if(typeof onUpdate==='function')onUpdate(detail);
   }
 
@@ -261,20 +303,15 @@ export function mountCarDetail({item, container, onUpdate} = {}) {
     if(!expected){loadState('이 차량은 상세정보 연동 대상이 아니에요. 원문에서 확인해 주세요.');return;}
     if(location.hostname==='github.io'||location.hostname.endsWith('.github.io')){loadState('상세정보는 로그인된 검색 화면에서 확인할 수 있어요. 아래 원문 버튼으로도 차량 정보를 볼 수 있어요.');return;}
     const active=new AbortController();controller=active;
-    timer=setTimeout(()=>active.abort(),12000);
-    loadState('차량 사진과 상세정보를 가져오고 있어요.',{loading:true});
+    timer=setTimeout(()=>active.abort(),20000);
+    loadState(`${expected.sourceName}의 차량 사진과 상세정보를 가져오고 있어요.`,{loading:true});
     try{
-      const url=new URL('/api/detail',location.origin);url.searchParams.set('source','kb');url.searchParams.set('id',expected.number);
-      const response=await fetch(url,{signal:active.signal,cache:'no-store',credentials:'same-origin',headers:{Accept:'application/json'}});
-      const payload=await response.json().catch(()=>null);
+      const detail=await fetchCarDetail({item,signal:active.signal});
       if(disposed||current!==version||!root.isConnected)return;
-      if(!response.ok)throw new Error(response.status===401||response.status===403?'로그인이 필요해 상세정보를 가져오지 못했어요. 원문을 확인하거나 로그인 후 다시 시도해 주세요.':typeof payload?.error==='string'?text(payload.error,300):'상세정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요.');
-      const detail=normalizeCarDetail(payload?.detail,item);
-      if(!detail)throw new Error('차량 상세정보를 확인하지 못했어요. 원문을 확인하거나 다시 시도해 주세요.');
       enrich(detail);
     }catch(error){
       if(disposed||current!==version||!root.isConnected)return;
-      loadState(error?.name==='AbortError'?'상세정보 응답이 늦어지고 있어요. 검색 당시 정보는 그대로 두었어요. 다시 시도해 주세요.':error instanceof TypeError?'상세정보 서버에 연결하지 못했어요. 검색 당시 정보는 그대로 두었어요.':text(error?.message,400)||'상세정보를 불러오지 못했어요.',{retry:true});
+      loadState(error?.name==='AbortError'?`${expected.sourceName} 응답이 늦어지고 있어요. 검색 당시 정보는 그대로 두었어요. 다시 시도해 주세요.`:error?.code?.startsWith('DETAIL_')?text(error.message,400):`${expected.sourceName} 상세정보에 연결하지 못했어요. 검색 당시 정보는 그대로 두었어요. 아래 원문 버튼으로 확인해 주세요.`,{retry:true});
     }finally{if(current===version)clearTimeout(timer);}
   }
 

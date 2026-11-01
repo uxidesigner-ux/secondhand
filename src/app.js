@@ -1,12 +1,12 @@
-import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.2.4';
-import {locateCurrentRegion} from './location-lookup.js?v=1.2.4';
-import {lookupRegionName} from './region-geocoder.js?v=1.2.4';
-import {initRefresh} from './refresh.js?v=1.2.4';
-import {mountCarDetail} from './car-detail.js?v=1.2.4';
+import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.3.0';
+import {locateCurrentRegion} from './location-lookup.js?v=1.3.0';
+import {lookupRegionName} from './region-geocoder.js?v=1.3.0';
+import {initRefresh} from './refresh.js?v=1.3.0';
+import {mountCarDetail} from './car-detail.js?v=1.3.0';
 import {resolveDetailItem} from './detail-route.js';
-import {recoverEncar} from './encar-fallback.js?v=1.2.4';
+import {recoverEncar} from './encar-fallback.js?v=1.3.0';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.2.4';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.3.0';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -245,7 +245,7 @@ function renderDetailPage(){
  if(!i){$('#detail-page-body').innerHTML=`<div class="empty"><div class="empty-icon">${icon('box')}</div><h2>매물 정보를 불러올 수 없어요</h2><p>검색 결과나 찜한 매물에서 다시 열어 주세요.</p><button id="detail-recover" class="text-button">돌아가기</button></div>`;$('#detail-actions').hidden=true;$('#detail-recover').onclick=detailBack;return;}
  if(detailMountedKey===id){updateDetailSave();return;}
  clearCarDetail();detailMountedKey=id;
- const rich=i.kind==='car'&&i.source==='kb';
+ const rich=i.kind==='car'&&['kb','encar','kcar'].includes(i.source);
  const facts=[['서비스',i.sourceName],['지역',i.region||'정보 없음'],['판매 상태',known(labels.status,i.status)],...(i.kind==='car'?[['연식',Number.isInteger(i.year)?i.year+'년':'정보 없음'],['주행거리',Number.isFinite(i.mileage)?i.mileage.toLocaleString()+'km':'정보 없음'],['연료',known(labels.fuel,i.fuel)]]:[['상품 상태',known(labels.condition,i.condition)],['거래 방법',i.methods?.map(m=>known(labels.method,m)).join(' · ')||'정보 없음']]),['수집 시각',when(i.collectedAt)],['등록 시각',when(i.publishedAt)]];
  const summary=rich?'<div id="car-detail-content"></div>':`<img class="detail-image" src="${esc(i.image||placeholder)}" alt="${esc(i.title)} 상품 이미지"><div class="product-labels"><span class="tiny-tag blue">원문에서 가져온 실제 매물</span></div><h3 class="detail-title">${esc(i.title)}</h3><p class="detail-price">${money(i.price)}</p><div class="detail-facts">${facts.map(([k,v])=>`<div><span>${k}</span>${esc(v)}</div>`).join('')}</div>`;
  const sourceLink=`<div class="detail-link"><label for="detail-url">실제 매물 링크</label><div class="detail-link-row"><input id="detail-url" type="url" value="${esc(i.url)}" readonly spellcheck="false"><button id="detail-copy" type="button" aria-label="실제 매물 링크 복사">링크 복사</button></div></div>`;
