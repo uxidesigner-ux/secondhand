@@ -1,10 +1,11 @@
 {
-  "frontend": "https://uxidesigner-ux.github.io/secondhand/",
+  "frontend": "https://used-search-api.vercel.app/",
   "apiProject": "used-search-api",
   "apiProjectId": "prj_0Q184QiP8R7uAhrWcBDGrHbk8lmL",
   "teamId": "team_Kt8Z1AHvVqYbTTAXft7QmhqF",
   "apiUrl": "https://used-search-api.vercel.app/api/search",
   "access": "vercel-authentication-required",
   "protectionDeploymentType": "all",
-  "publicAccessApproved": false
+  "publicAccessApproved": false,
+  "legacyFrontend": "https://uxidesigner-ux.github.io/secondhand/"
 }

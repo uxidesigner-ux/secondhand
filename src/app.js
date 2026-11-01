@@ -1,8 +1,8 @@
-import {initRefresh} from './refresh.js?v=1.1.1';
-import {mountCarDetail} from './car-detail.js?v=1.1.1';
+import {initRefresh} from './refresh.js?v=1.2.0';
+import {mountCarDetail} from './car-detail.js?v=1.2.0';
 import {resolveDetailItem} from './detail-route.js';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.2.0';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -236,7 +236,7 @@ function toggleSave(id){
 }
 function info(){openSheet('USED를 소개해요',`<div class="info-block"><h3>검색할 때 실제 매물을 가져와요</h3><p>실제 검색은 접근 보호된 사이트에서 제공하며, Vercel 프로젝트 접근 권한이 있는 계정으로 로그인해야 해요. 검색어를 입력하면 연결 가능한 서비스의 공개 검색 결과에서 매물 정보를 가져와요. 각 서비스의 일부 결과를 표시하며 웹상의 모든 매물을 포함하지 않아요. 연결되지 않은 서비스와 오류는 결과 위에 표시해요.</p></div><div class="info-block"><h3>정보가 없는 경우도 있어요</h3><p>가격·사진·지역·판매 상태는 원문에서 제공한 범위만 보여요. 조건 필터는 가져온 결과에 적용하며, 정보가 없는 매물은 그 조건에서 제외돼요. 판매 여부와 변경된 가격은 원문에서 확인해 주세요.</p></div><div class="info-block"><h3>찜한 매물과 내 위치</h3><p>찜은 저장 당시 정보를 이 브라우저에 보관해요. 삭제되거나 판매가 끝난 매물도 찜에 남을 수 있어요. 다른 기기와 동기화되지 않으며 브라우저 데이터를 지우면 사라져요. 위치는 권한 허용 시 이번 방문에서만 사용하고 검색 서버에 전송하지 않아요. 검색어와 선택한 서비스는 검색 서버와 해당 서비스에 전달돼요.</p></div><div class="info-block"><h3>거래는 원문 서비스에서</h3><p>USED는 구매·결제·채팅을 제공하지 않아요. 토스 디자인 시스템의 공개 원칙을 참고한 독립 구현이며 토스나 매물 제공 서비스의 공식 제휴 서비스가 아니에요. 샘플 체험은 실제 검색과 별도로 제공돼요.</p></div>`,'<button class="primary-button" id="info-done">확인했어요</button>');$('#info-done').onclick=closeSheet;}
 function install(){
- const iconImage='<img src="./assets/apple-touch-icon.png" alt="흰 배경의 USED 앱 아이콘" width="76" height="76" style="border:1px solid #e5e8eb;border-radius:18px">';
+ const iconImage='<img src="./assets/apple-touch-icon-1.2.0.png" alt="흰 배경에 USED와 파란 도트가 있는 앱 아이콘" width="76" height="76" style="border:1px solid #e5e8eb;border-radius:18px">';
  if(REQUIRES_LOGIN_REDIRECT){
   const appUrl=new URL(PROTECTED_SEARCH_URL);appUrl.searchParams.set('install','1');
   openSheet('주소창 없이 앱으로 사용하기',`<div class="info-block">${iconImage}<h3>검색용 USED를 홈 화면에 추가해요</h3><p>현재 아이콘이 이 소개 페이지로 연결되어 있으면, 검색할 때 다른 주소로 이동하면서 브라우저의 상·하단 바가 나타나요.</p><ol><li>아래 ‘검색용 USED 열기’를 눌러 로그인해 주세요.</li><li>USED 화면이 열리면 공유 → ‘홈 화면에 추가’를 선택해요.</li><li>‘웹 앱으로 열기’가 보이면 켜고 추가해 주세요.</li></ol><p>다음부터 새 아이콘으로 열면 검색과 상세 페이지를 앱 안에서 이용할 수 있어요.</p></div>`,`<a class="primary-button" href="${esc(appUrl.href)}">검색용 USED 열기</a>`);
