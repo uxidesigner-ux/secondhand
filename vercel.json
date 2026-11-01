@@ -3,7 +3,7 @@
   "version": 2,
   "framework": null,
   "regions": ["icn1"],
-  "functions": {"api/search.js": {"maxDuration": 25}},
+  "functions": {"api/search.js": {"maxDuration": 25}, "api/detail.js": {"maxDuration": 15}},
   "buildCommand": "",
   "installCommand": ""
 }
