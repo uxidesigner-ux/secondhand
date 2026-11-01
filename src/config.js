@@ -27,7 +27,6 @@ export function canonicalEntryUrl(input) {
   if(sources.includes(source))target.searchParams.set('source',source);
   const item=params.get('item');
   if(view==='detail'&&item&&item.length<=512&&!/[\u0000-\u001f\u007f]/.test(item))target.searchParams.set('item',item);
-  if(params.get('mode')==='demo')target.searchParams.set('mode','demo');
   if(params.get('install')==='1')target.searchParams.set('install','1');
   return target.href;
 }

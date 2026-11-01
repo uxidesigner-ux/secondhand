@@ -15,7 +15,7 @@ test('search and internal details preserve valid route state',()=>{
   assert.deepEqual(Object.fromEntries(target.searchParams),{kind:'car',view:'detail',q:'재규어 XF',source:'kb',item:'kb-28882930',install:'1'});
   const goods=new URL(canonicalEntryUrl('https://uxidesigner-ux.github.io/secondhand/?view=detail&item=daangn%3A%EC%95%84%EC%9D%B4%ED%8F%B0-abc&source=daangn&mode=demo'));
   assert.equal(goods.searchParams.get('item'),'daangn:아이폰-abc');
-  assert.equal(goods.searchParams.get('mode'),'demo');
+  assert.equal(goods.searchParams.has('mode'),false);
 });
 
 test('authentication, location, destination parameters and fragments are never forwarded',()=>{

@@ -44,12 +44,12 @@ test('snapshot lookup uses exact identity and rejects malformed or unsafe listin
   assert.equal(resolveDetailItem({id:'bunjang:12345',candidates:[null,{},listing({title:''})]}),null);
 });
 
-test('sample and live detail routes cannot substitute each other',()=>{
+test('retired preview snapshots cannot reappear through old detail routes',()=>{
   const live=listing(),demo=listing({id:'demo-01',demo:true,title:'예시 매물'});
   assert.equal(resolveDetailItem({id:demo.id,mode:'live',candidates:[demo]}),null);
-  assert.equal(resolveDetailItem({id:live.id,mode:'demo',candidates:[live]}),null);
-  assert.deepEqual(resolveDetailItem({id:demo.id,mode:'demo',candidates:[live,demo]}),demo);
-  assert.equal(resolveDetailItem({id:kb.id,mode:'demo',candidates:[]}),null);
+  assert.deepEqual(resolveDetailItem({id:live.id,mode:'demo',candidates:[live]}),live);
+  assert.equal(resolveDetailItem({id:demo.id,mode:'demo',candidates:[live,demo]}),null);
+  assert.equal(resolveDetailItem({id:kb.id,mode:'demo',candidates:[]}).price,null);
   const sameIdDemo={...kb,demo:true,title:'샘플 차량'};
   const recovered=resolveDetailItem({id:kb.id,mode:'live',candidates:[sameIdDemo]});
   assert.equal(recovered.demo,false);assert.equal(recovered.price,null);assert.notEqual(recovered.title,sameIdDemo.title);

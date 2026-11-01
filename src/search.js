@@ -23,6 +23,8 @@ const bound = value => active(value) && Number.isFinite(Number(value)) ? Number(
 export function validateListing(item) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
   if (typeof item.id !== 'string' || !item.id.trim() || typeof item.title !== 'string' || !item.title.trim()) return false;
+  // Reject retired preview records restored from an older browser cache/history.
+  if (item.demo === true || /^demo(?:-|$)/i.test(item.id)) return false;
   if (!isNumber(item.price) || item.price < 0 || !Number.isSafeInteger(item.price)) return false;
   if (!Object.hasOwn(sources, item.source) || !categories.includes(item.category)
     || !conditions.includes(item.condition) || !statuses.includes(item.status)) return false;
