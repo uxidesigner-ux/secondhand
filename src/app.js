@@ -1,5 +1,5 @@
-import {initRefresh} from './refresh.js?v=1.1.0';
-import {mountCarDetail} from './car-detail.js?v=1.1.0';
+import {initRefresh} from './refresh.js?v=1.1.1';
+import {mountCarDetail} from './car-detail.js?v=1.1.1';
 import {resolveDetailItem} from './detail-route.js';
 import {filterListings, distanceKm, validateListing} from './search.js';
 import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js';

@@ -1,2 +1,2 @@
 // Semantic release: major.minor.patch. Keep package.json and asset cache versions in sync.
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.1.1';
