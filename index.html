@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#ffffff"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="USED"><meta name="description" content="중고물품부터 중고차까지. 여러 서비스의 매물을 한곳에서 찾고, 비교하고, 찜하세요.">
-<title>USED — 찾던 중고, 한곳에</title><link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./assets/apple-touch-icon.png"><link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./src/styles.css?v=2026.11.01.5"><link rel="stylesheet" href="./src/car-detail.css?v=2026.11.01.5">
+<title>USED — 찾던 중고, 한곳에</title><link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./assets/apple-touch-icon.png"><link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./src/styles.css?v=1.1.0"><link rel="stylesheet" href="./src/car-detail.css?v=1.1.0">
 </head>
 <body>
 <div class="app">
@@ -22,6 +22,7 @@
 <form id="home-search-form" class="search-box" role="search"><span data-icon="search"></span><input id="home-query" type="search" maxlength="80" placeholder="어떤 물건을 찾고 있나요?" aria-label="홈 검색어" autocomplete="off" enterkeyhint="search"><button type="submit" aria-label="검색"><span data-icon="arrow"></span></button></form>
 <div class="suggestions" id="suggestions"></div>
 <p class="home-search-note" id="home-search-note"></p>
+<button class="home-install" id="home-install" type="button"><span data-icon="grid"></span><span>주소창 없이 앱으로 사용하기</span><span data-icon="chevron"></span></button>
 <div class="home-services"><div class="home-services-heading"><h2>여러 서비스의 매물을 한곳에서</h2><button data-page="services" aria-label="서비스 모아보기">전체 보기<span data-icon="chevron"></span></button></div><p>당근 · 중고나라 · 번개장터 · 헬로마켓<br>엔카 · KB차차차 · K Car</p><button class="home-demo" id="home-demo">샘플로 둘러보기<span data-icon="arrow"></span></button></div>
 </section>
 <section class="browse" id="browse-screen" aria-label="매물 검색" hidden>
@@ -34,11 +35,11 @@
 <section id="external" class="external" hidden><div class="external-title"><span data-icon="globe"></span><div><h3>각 서비스에서 바로 찾아보기</h3><p>원문 사이트에서 최신 매물을 확인해 보세요.</p></div></div><div id="external-links"></div><p class="external-note">선택한 필터는 USED 내부 검색에 적용돼요. 외부 사이트에서는 필터를 다시 설정해 주세요.</p></section>
 </section>
 <div class="footnote"><span class="brand-small">USED</span><p>새 주인을 만나면, 또 새로운 시작.<br>거래와 결제는 제공하지 않아요.</p><button id="install-open">홈 화면에 추가하기<span data-icon="arrow"></span></button></div>
-<footer class="deployment-footer" aria-label="배포 정보"><span id="deployment-version">버전 2026.11.01.5</span><button id="app-refresh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.1M4.4 14.8a8.3 8.3 0 0 0 13.5 3.1"/></svg><span>새로고침</span></button></footer>
+<footer class="deployment-footer" aria-label="배포 정보"><span id="deployment-version">버전 1.1.0</span><button id="app-refresh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.1M4.4 14.8a8.3 8.3 0 0 0 13.5 3.1"/></svg><span>새로고침</span></button></footer>
 </main>
 <div id="detail-actions" class="detail-page-actions" aria-label="매물 상세 작업" hidden></div>
 <nav class="bottom-nav" aria-label="주 메뉴"><button data-page="home" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z"/></svg><span>홈</span></button><button data-page="saved"><span data-icon="heart"></span><span>찜한 매물 <b id="saved-count"></b></span></button><button data-page="services"><span data-icon="grid"></span><span>서비스 모아보기</span></button></nav>
 </div>
 <dialog id="sheet" aria-labelledby="sheet-title"><div class="sheet-handle"></div><div class="sheet-header"><h2 id="sheet-title"></h2><button id="sheet-close" class="icon-button" aria-label="닫기"><span data-icon="close"></span></button></div><div id="sheet-body"></div><div id="sheet-footer"></div></dialog>
-<div id="toast" role="status"></div><script type="module" src="./src/app.js?v=2026.11.01.5"></script>
+<div id="toast" role="status"></div><script type="module" src="./src/app.js?v=1.1.0"></script>
 </body></html>

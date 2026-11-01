@@ -1,8 +1,10 @@
-import {initRefresh} from './refresh.js?v=2026.11.01.5';
-import {mountCarDetail} from './car-detail.js?v=2026.11.01.5';
+import {initRefresh} from './refresh.js?v=1.1.0';
+import {mountCarDetail} from './car-detail.js?v=1.1.0';
 import {resolveDetailItem} from './detail-route.js';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,protectedSearchUrl} from './config.js';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js';
+const installRequested=new URLSearchParams(location.search).get('install')==='1';
+const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
 const icons={back:'<path d="m14 5-7 7 7 7M7 12h14"/>',external:'<path d="M14 3h7v7m0-7L10 14"/><path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>',search:'<circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/>',heart:'<path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0L12 5.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.4a5.5 5.5 0 0 0 0-7.8Z"/>',pin:'<path d="M20 10c0 6-8 11-8 11S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',chevron:'<path d="m9 5 7 7-7 7"/>',arrow:'<path d="M4 12h16m-6-6 6 6-6 6"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/>',sliders:'<path d="M4 7h8m4 0h4M4 17h3m4 0h9"/><circle cx="14" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',globe:'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',car:'<path d="m5 7 2-4h10l2 4 2 3v8H3v-8l2-3Zm0 0h14M6 13h2m8 0h2M5 18v3m14-3v3"/>',box:'<path d="m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4m-9 4v10M7 5l9 4"/>'};
 const icon=n=>`<svg viewBox="0 0 24 24" aria-hidden="true">${icons[n]||icons.box}</svg>`;
@@ -233,7 +235,20 @@ function toggleSave(id){
  persist();render();notify(state.saved.has(id)?'찜한 매물에 담았어요.':'찜을 취소했어요.');
 }
 function info(){openSheet('USED를 소개해요',`<div class="info-block"><h3>검색할 때 실제 매물을 가져와요</h3><p>실제 검색은 접근 보호된 사이트에서 제공하며, Vercel 프로젝트 접근 권한이 있는 계정으로 로그인해야 해요. 검색어를 입력하면 연결 가능한 서비스의 공개 검색 결과에서 매물 정보를 가져와요. 각 서비스의 일부 결과를 표시하며 웹상의 모든 매물을 포함하지 않아요. 연결되지 않은 서비스와 오류는 결과 위에 표시해요.</p></div><div class="info-block"><h3>정보가 없는 경우도 있어요</h3><p>가격·사진·지역·판매 상태는 원문에서 제공한 범위만 보여요. 조건 필터는 가져온 결과에 적용하며, 정보가 없는 매물은 그 조건에서 제외돼요. 판매 여부와 변경된 가격은 원문에서 확인해 주세요.</p></div><div class="info-block"><h3>찜한 매물과 내 위치</h3><p>찜은 저장 당시 정보를 이 브라우저에 보관해요. 삭제되거나 판매가 끝난 매물도 찜에 남을 수 있어요. 다른 기기와 동기화되지 않으며 브라우저 데이터를 지우면 사라져요. 위치는 권한 허용 시 이번 방문에서만 사용하고 검색 서버에 전송하지 않아요. 검색어와 선택한 서비스는 검색 서버와 해당 서비스에 전달돼요.</p></div><div class="info-block"><h3>거래는 원문 서비스에서</h3><p>USED는 구매·결제·채팅을 제공하지 않아요. 토스 디자인 시스템의 공개 원칙을 참고한 독립 구현이며 토스나 매물 제공 서비스의 공식 제휴 서비스가 아니에요. 샘플 체험은 실제 검색과 별도로 제공돼요.</p></div>`,'<button class="primary-button" id="info-done">확인했어요</button>');$('#info-done').onclick=closeSheet;}
-function install(){openSheet('홈 화면에서 바로 만나요',`<div class="info-block"><img src="./assets/apple-touch-icon.png" alt="흰 배경의 USED 앱 아이콘" width="76" height="76" style="border:1px solid #e5e8eb;border-radius:18px"><h3>내 아이폰에 USED 추가하기</h3><ol><li>Safari에서 이 페이지를 열어 주세요.</li><li>공유 버튼을 누른 뒤 ‘홈 화면에 추가’를 선택해요.</li><li>이름이 USED인지 확인하고 ‘추가’를 누르면 끝이에요.</li></ol><p>흰 배경의 USED 아이콘으로 앱처럼 열 수 있어요.</p></div>`,'<button class="primary-button" id="install-done">알겠어요</button>');$('#install-done').onclick=closeSheet;}
+function install(){
+ const iconImage='<img src="./assets/apple-touch-icon.png" alt="흰 배경의 USED 앱 아이콘" width="76" height="76" style="border:1px solid #e5e8eb;border-radius:18px">';
+ if(REQUIRES_LOGIN_REDIRECT){
+  const appUrl=new URL(PROTECTED_SEARCH_URL);appUrl.searchParams.set('install','1');
+  openSheet('주소창 없이 앱으로 사용하기',`<div class="info-block">${iconImage}<h3>검색용 USED를 홈 화면에 추가해요</h3><p>현재 아이콘이 이 소개 페이지로 연결되어 있으면, 검색할 때 다른 주소로 이동하면서 브라우저의 상·하단 바가 나타나요.</p><ol><li>아래 ‘검색용 USED 열기’를 눌러 로그인해 주세요.</li><li>USED 화면이 열리면 공유 → ‘홈 화면에 추가’를 선택해요.</li><li>‘웹 앱으로 열기’가 보이면 켜고 추가해 주세요.</li></ol><p>다음부터 새 아이콘으로 열면 검색과 상세 페이지를 앱 안에서 이용할 수 있어요.</p></div>`,`<a class="primary-button" href="${esc(appUrl.href)}">검색용 USED 열기</a>`);
+  return;
+ }
+ if(standalone()){
+  openSheet('앱으로 사용 중이에요',`<div class="info-block">${iconImage}<h3>검색과 상세 페이지를 한 화면에서</h3><p>USED 안에서는 브라우저 주소창 없이 이용할 수 있어요. 로그인이나 외부 매물 원문을 열 때는 브라우저 화면이 나타날 수 있어요.</p></div>`,'<button class="primary-button" id="install-done">확인했어요</button>');
+ }else{
+  openSheet('주소창 없이 앱으로 사용하기',`<div class="info-block">${iconImage}<h3>이 검색 화면을 홈 화면에 추가해요</h3><ol><li>Safari에서 USED 화면이 열린 상태로 공유 버튼을 눌러 주세요.</li><li>‘홈 화면에 추가’를 선택해요.</li><li>‘웹 앱으로 열기’가 보이면 켜고, 이름이 USED인지 확인한 뒤 추가해 주세요.</li><li>새로 추가한 USED 아이콘으로 다시 열어 주세요.</li></ol><p>검색과 상세 페이지에서는 브라우저의 주소창·도구 모음 없이 이용할 수 있어요. 로그인이나 외부 원문을 열 때는 브라우저 화면이 나타날 수 있어요.</p><p>기존 GitHub 주소의 아이콘을 쓰고 있다면 새 아이콘을 사용해 주세요. 새 앱에서는 로그인이 다시 필요할 수 있어요.</p></div>`,'<button class="primary-button" id="install-done">알겠어요</button>');
+ }
+ $('#install-done').onclick=closeSheet;
+}
 document.addEventListener('click',e=>{
  const el=e.target.closest('button');if(!el)return;
  if(el.dataset.kind){state.kind=el.dataset.kind;state.source='all';state.filters=defaults();state.query='';syncQueries();if(state.page==='search')searchLive();else render();}
@@ -254,9 +269,10 @@ $('#mode-switch').onclick=()=>{cancelSearch();state.mode=state.mode==='demo'?'li
 $('#home-demo').onclick=()=>{state.mode='demo';state.query='';state.source='all';state.filters=defaults();navigate('search');loadDemo();};
 $('#detail-back').onclick=detailBack;
 $('#results-back').onclick=()=>{if(history.state?.usedRoute&&routeDepth>0)history.back();else navigate('home',{replace:true});};
-$('#info-open').onclick=info;$('#install-open').onclick=install;
+$('#info-open').onclick=info;$('#install-open').onclick=install;$('#home-install').onclick=install;
+$('#home-install').hidden=standalone()&&!REQUIRES_LOGIN_REDIRECT;
 $('#home-header .wordmark').onclick=e=>{e.preventDefault();navigate('home',{replace:state.page==='home'});};
 for(const id of ['query','home-query'])$('#'+id).maxLength=80;
 if(REQUIRES_LOGIN_REDIRECT)for(const id of ['search-form','home-search-form'])$('#'+id+' button[type=submit]').setAttribute('aria-label','로그인 후 검색');
-paintIcons();initRefresh();restoreRoute(history.state?.usedRoute?history.state:null);
+paintIcons();initRefresh();restoreRoute(history.state?.usedRoute?history.state:null).then(()=>{if(installRequested)install();});
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});

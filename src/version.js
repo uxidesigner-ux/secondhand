@@ -1,2 +1,2 @@
-// Increment for each published release so installed home-screen apps can identify it.
-export const APP_VERSION = '2026.11.01.5';
+// Semantic release: major.minor.patch. Keep package.json and asset cache versions in sync.
+export const APP_VERSION = '1.1.0';
