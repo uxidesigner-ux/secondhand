@@ -78,9 +78,29 @@ test('rejects dangerous, spoofed, cross-provider and non-HTTPS listing URLs', ()
 });
 
 test('rejects malformed prices, coordinates, dates and enum fields', () => {
-  for (const changes of [{ price: -1 }, { price: Infinity }, { price: '100' }, { price: 0.5 }, { lat: 91 }, { lng: -181 }, { lat: null }, { lat: '37.5' }, { publishedAt: 'invalid' }, { status: 'unknown' }, { methods: [] }, { category: 'bad' }, { title: '' }]) {
+  for (const changes of [{ price: -1 }, { price: Infinity }, { price: '100' }, { price: 0.5 }, { lat: 91 }, { lng: -181 }, { lat: null }, { lat: '37.5' }, { publishedAt: 'invalid' }, { status: 'bogus' }, { methods: ['bogus'] }, { category: 'bad' }, { title: '' }]) {
     assert.equal(validateListing(item(changes)), false, JSON.stringify(changes));
   }
   assert.equal(filterListings([null, {}, first]).length, 1);
   assert.equal(filterListings(null).length, 0);
+});
+
+
+test('real listings retain unknown metadata without inventing condition, time or location', () => {
+  const unknown = item({ demo: false, condition: 'unknown', category: 'unknown', methods: [], status: 'unknown', publishedAt: null, lat: null, lng: null });
+  assert.equal(validateListing(unknown), true);
+  assert.equal(filterListings([unknown], { status: 'selling' }).length, 0);
+  assert.equal(filterListings([unknown], { method: 'direct' }).length, 0);
+  assert.equal(filterListings([unknown], { sort: 'recent' }).length, 1);
+  assert.equal(filterListings([unknown, first], { sort: 'recent' })[0], first);
+  const car = { ...unknown, kind: 'car', category: 'car', source: 'encar', sourceName: '엔카', url: 'https://car.encar.com/detail/car/1', brand: null, year: null, mileage: null, fuel: null };
+  assert.equal(validateListing(car), true);
+  assert.equal(filterListings([car], { minYear: 2020 }).length, 0);
+});
+
+
+test('unknown dates preserve upstream result order instead of sorting older IDs first', () => {
+ const rows = [item({id:'z',publishedAt:null}),item({id:'a',publishedAt:null})];
+ assert.deepEqual(filterListings(rows,{sort:'recent'}).map(i=>i.id),['z','a']);
+ assert.equal(validateListing(item({updatedAt:'nonsense'})),false);
 });

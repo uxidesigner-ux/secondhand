@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "framework": null,
+  "regions": ["icn1"],
+  "functions": {"api/search.js": {"maxDuration": 25}},
+  "buildCommand": "",
+  "installCommand": ""
+}

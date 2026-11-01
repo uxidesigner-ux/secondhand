@@ -3,15 +3,15 @@ const sources = {
   joongna: ['web.joongna.com'],
   bunjang: ['m.bunjang.co.kr'],
   other: ['www.hellomarket.com'],
-  encar: ['encar.com', 'www.encar.com', 'car.encar.com'],
+  encar: ['encar.com', 'www.encar.com', 'car.encar.com', 'fem.encar.com'],
   kb: ['www.kbchachacha.com'],
   kcar: ['www.kcar.com', 'm.kcar.com'],
 };
-const categories = ['digital', 'fashion', 'home', 'sports', 'hobby', 'car'];
-const fuels = ['gasoline', 'diesel', 'hybrid', 'electric'];
-const conditions = ['new', 'like-new', 'used'];
+const categories = ['digital', 'fashion', 'home', 'sports', 'hobby', 'car', 'unknown'];
+const fuels = ['gasoline', 'diesel', 'hybrid', 'electric', 'lpg', 'unknown'];
+const conditions = ['new', 'like-new', 'used', 'unknown'];
 const methods = ['direct', 'shipping'];
-const statuses = ['selling', 'reserved', 'sold'];
+const statuses = ['selling', 'reserved', 'sold', 'unknown'];
 const isNumber = value => typeof value === 'number' && Number.isFinite(value);
 const validCoords = coords => coords && isNumber(coords.lat) && isNumber(coords.lng)
   && Math.abs(coords.lat) <= 90 && Math.abs(coords.lng) <= 180;
@@ -27,12 +27,17 @@ export function validateListing(item) {
   if (!Object.hasOwn(sources, item.source) || !categories.includes(item.category)
     || !conditions.includes(item.condition) || !statuses.includes(item.status)) return false;
   if (item.kind != null && !['goods', 'car'].includes(item.kind)) return false;
-  if (item.kind === 'car' && (typeof item.brand !== 'string' || !item.brand.trim()
-    || !Number.isInteger(item.year) || item.year < 1900 || item.year > new Date().getFullYear() + 1
-    || !Number.isSafeInteger(item.mileage) || item.mileage < 0 || !fuels.includes(item.fuel))) return false;
-  if (!Array.isArray(item.methods) || !item.methods.length || !item.methods.every(value => methods.includes(value))) return false;
+  if (item.kind === 'car') {
+    if (item.brand != null && typeof item.brand !== 'string') return false;
+    if (item.year != null && (!Number.isInteger(item.year) || item.year < 1900 || item.year > new Date().getFullYear() + 1)) return false;
+    if (item.mileage != null && (!Number.isSafeInteger(item.mileage) || item.mileage < 0)) return false;
+    if (item.fuel != null && !fuels.includes(item.fuel)) return false;
+  }
+  if (!Array.isArray(item.methods) || !item.methods.every(value => methods.includes(value))) return false;
   if (typeof item.sourceName !== 'string' || !item.sourceName.trim() || typeof item.region !== 'string') return false;
-  if (typeof item.publishedAt !== 'string' || !Number.isFinite(Date.parse(item.publishedAt))) return false;
+  if (item.publishedAt != null && (typeof item.publishedAt !== 'string' || !Number.isFinite(Date.parse(item.publishedAt)))) return false;
+  if (item.updatedAt != null && (typeof item.updatedAt !== 'string' || !Number.isFinite(Date.parse(item.updatedAt)))) return false;
+  if (item.collectedAt != null && (typeof item.collectedAt !== 'string' || !Number.isFinite(Date.parse(item.collectedAt)))) return false;
   const hasCoordinates = item.lat != null || item.lng != null;
   if (hasCoordinates && !validCoords(item)) return false;
   try {
@@ -86,7 +91,8 @@ export function filterListings(listings, options = {}) {
     if (position && radius !== null && distanceKm(position, item) > Math.max(0, radius)) return false;
     return true;
   });
-  const recent = (a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt) || a.id.localeCompare(b.id);
+  const stamp = item => (item.publishedAt || item.updatedAt) ? Date.parse(item.publishedAt || item.updatedAt) : 0;
+  const recent = (a, b) => stamp(b) - stamp(a);
   const comparators = {
     recent,
     'price-asc': (a, b) => a.price - b.price || recent(a, b),
