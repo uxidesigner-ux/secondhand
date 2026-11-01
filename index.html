@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#ffffff"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="USED"><meta name="description" content="중고물품부터 중고차까지. 여러 서비스의 매물을 한곳에서 찾고, 비교하고, 찜하세요.">
-<title>USED — 찾던 중고, 한곳에</title><link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./assets/apple-touch-icon.png"><link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./src/styles.css?v=2026.11.01.4"><link rel="stylesheet" href="./src/car-detail.css?v=2026.11.01.4">
+<title>USED — 찾던 중고, 한곳에</title><link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./assets/apple-touch-icon.png"><link rel="manifest" href="./manifest.webmanifest"><link rel="stylesheet" href="./src/styles.css?v=2026.11.01.5"><link rel="stylesheet" href="./src/car-detail.css?v=2026.11.01.5">
 </head>
 <body>
 <div class="app">
@@ -11,7 +11,11 @@
 <div class="results-search-row"><button class="icon-button" id="results-back" aria-label="뒤로 가기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button><form id="search-form" class="search-box" role="search"><span data-icon="search"></span><input id="query" type="search" maxlength="80" placeholder="어떤 물건을 찾고 있나요?" aria-label="검색어" autocomplete="off" enterkeyhint="search"><button type="submit" aria-label="검색"><span data-icon="arrow"></span></button></form></div>
 <div class="results-toolbar"><button id="filters-open" class="filter-main"><span data-icon="sliders"></span><span id="filter-summary">필터</span><span id="filter-count" hidden></span><span data-icon="chevron"></span></button><label class="sort-control"><span class="sr-only">정렬</span><select id="sort"><option value="recent">최신순</option><option value="price-asc">낮은 가격순</option><option value="price-desc">높은 가격순</option><option value="distance">가까운순</option></select></label></div>
 </header>
+<header class="detail-header" id="detail-header" aria-label="매물 상세 헤더" hidden>
+<div class="detail-glass"><button class="detail-back" id="detail-back" type="button" aria-label="뒤로가기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button><div class="detail-header-copy"><span id="detail-page-source">USED</span><h1 id="detail-page-title" tabindex="-1">매물 살펴보기</h1></div><span class="detail-header-brand" aria-hidden="true">USED</span></div>
+</header>
 <main>
+<section id="detail-screen" class="detail-page" aria-label="매물 상세 페이지" hidden><div id="detail-page-body"></div></section>
 <section id="home-screen" aria-label="홈">
 <section class="intro"><p class="eyebrow">좋은 발견의 시작</p><h1>찾던 중고,<br>이제 한곳에서.</h1><p class="intro-desc">여러 곳을 오가지 말고, 한 번에 찾아보세요.</p><div class="intro-art" aria-hidden="true"><div class="art-card back">U</div><div class="art-card front"><svg viewBox="0 0 80 80"><circle cx="34" cy="34" r="17"/><path d="m47 47 16 16"/></svg></div><span class="spark one">✦</span><span class="spark two">✦</span></div></section>
 <div class="kind-tabs" aria-label="검색 종류"><button data-kind="goods" class="active">중고물품</button><button data-kind="car">중고차<span class="new-badge">NEW</span></button></div>
@@ -30,10 +34,11 @@
 <section id="external" class="external" hidden><div class="external-title"><span data-icon="globe"></span><div><h3>각 서비스에서 바로 찾아보기</h3><p>원문 사이트에서 최신 매물을 확인해 보세요.</p></div></div><div id="external-links"></div><p class="external-note">선택한 필터는 USED 내부 검색에 적용돼요. 외부 사이트에서는 필터를 다시 설정해 주세요.</p></section>
 </section>
 <div class="footnote"><span class="brand-small">USED</span><p>새 주인을 만나면, 또 새로운 시작.<br>거래와 결제는 제공하지 않아요.</p><button id="install-open">홈 화면에 추가하기<span data-icon="arrow"></span></button></div>
-<footer class="deployment-footer" aria-label="배포 정보"><span id="deployment-version">버전 2026.11.01.4</span><button id="app-refresh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.1M4.4 14.8a8.3 8.3 0 0 0 13.5 3.1"/></svg><span>새로고침</span></button></footer>
+<footer class="deployment-footer" aria-label="배포 정보"><span id="deployment-version">버전 2026.11.01.5</span><button id="app-refresh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.1M4.4 14.8a8.3 8.3 0 0 0 13.5 3.1"/></svg><span>새로고침</span></button></footer>
 </main>
+<div id="detail-actions" class="detail-page-actions" aria-label="매물 상세 작업" hidden></div>
 <nav class="bottom-nav" aria-label="주 메뉴"><button data-page="home" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z"/></svg><span>홈</span></button><button data-page="saved"><span data-icon="heart"></span><span>찜한 매물 <b id="saved-count"></b></span></button><button data-page="services"><span data-icon="grid"></span><span>서비스 모아보기</span></button></nav>
 </div>
 <dialog id="sheet" aria-labelledby="sheet-title"><div class="sheet-handle"></div><div class="sheet-header"><h2 id="sheet-title"></h2><button id="sheet-close" class="icon-button" aria-label="닫기"><span data-icon="close"></span></button></div><div id="sheet-body"></div><div id="sheet-footer"></div></dialog>
-<div id="toast" role="status"></div><script type="module" src="./src/app.js?v=2026.11.01.4"></script>
+<div id="toast" role="status"></div><script type="module" src="./src/app.js?v=2026.11.01.5"></script>
 </body></html>

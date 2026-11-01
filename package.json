@@ -6,7 +6,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "start": "python3 -m http.server 4173",
-    "check": "node --check src/app.js && node --check src/search.js && node --check api/search.js && node --check server/handler.mjs && node --check api/detail.js && node --check server/detail-handler.mjs && node --check server/providers/kb-detail.mjs && node --check src/car-detail.js",
+    "check": "node --check src/app.js && node --check src/search.js && node --check api/search.js && node --check server/handler.mjs && node --check api/detail.js && node --check server/detail-handler.mjs && node --check server/providers/kb-detail.mjs && node --check src/car-detail.js && node --check src/detail-route.js",
     "dev": "node server/dev.mjs"
   }
 }

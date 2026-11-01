@@ -78,7 +78,7 @@ function baseFacts(item) {
   ];
 }
 
-/** Mount inside an already-open sheet. Call cleanup when closing/replacing the sheet. */
+/** Mount in the detail page. Call cleanup when leaving or replacing the route. */
 export function mountCarDetail({item, container, onUpdate} = {}) {
   if (!container || typeof container.replaceChildren !== 'function') return () => {};
   const expected = identity(item);
@@ -109,19 +109,57 @@ export function mountCarDetail({item, container, onUpdate} = {}) {
     const wrap = $('.car-detail__gallery');
     wrap.innerHTML = `<div class="car-detail__gallery-frame"><div class="car-detail__photo-track" role="region" aria-roledescription="사진 슬라이드" aria-label="차량 사진, 좌우로 넘겨보기" tabindex="0">${images.map((url,index)=>`<figure class="car-detail__photo"><img src="${esc(url)}" alt="${esc(text(item?.title,250)||'차량')} 사진 ${index+1}" ${index?'loading="lazy"':''} referrerpolicy="no-referrer"></figure>`).join('')}</div><div class="car-detail__gallery-controls"><button type="button" data-photo-prev aria-label="이전 차량 사진"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><span class="car-detail__photo-count" role="status" aria-live="polite">1 / ${images.length}</span><button type="button" data-photo-next aria-label="다음 차량 사진"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></button></div></div>${images.length>1?`<div class="car-detail__thumbnails" role="group" aria-label="사진 선택">${images.map((url,index)=>`<button type="button" data-photo-index="${index}" aria-label="차량 사진 ${index+1} 보기" aria-pressed="${index===0}"><img src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>`:''}`;
     const track = wrap.querySelector('.car-detail__photo-track');
+    const rail = wrap.querySelector('.car-detail__thumbnails');
+    const thumbnails = [...wrap.querySelectorAll('[data-photo-index]')];
     const prev = wrap.querySelector('[data-photo-prev]');
     const next = wrap.querySelector('[data-photo-next]');
-    let selected = 0, frame = null;
-    const update = () => {
-      selected = Math.max(0,Math.min(images.length-1,Math.round(track.scrollLeft/(track.clientWidth||1))));
+    let selected = 0, intended = null, scrollFrame = null, layoutFrame = null, measuredWidth = 0, removed = false;
+    const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const nearestPhoto = () => Math.max(0,Math.min(images.length-1,Math.round(track.scrollLeft/(track.clientWidth||1))));
+
+    // Scroll only the horizontal rail; scrollIntoView would also move the page.
+    const centerThumbnail = (animate = false) => {
+      const button = thumbnails[selected];
+      if (!rail || !button || !rail.clientWidth) return;
+      const railBox = rail.getBoundingClientRect();
+      const buttonBox = button.getBoundingClientRect();
+      const railCenter = railBox.left + rail.clientLeft + rail.clientWidth/2;
+      const left = rail.scrollLeft + buttonBox.left + buttonBox.width/2 - railCenter;
+      rail.scrollTo({left:Math.max(0,left),top:rail.scrollTop,behavior:animate&&!reduceMotion()?'smooth':'auto'});
+    };
+    const selectPhoto = (index, {animate = true, forceCenter = false} = {}) => {
+      const nextIndex = Math.max(0,Math.min(images.length-1,index));
+      const changed = nextIndex !== selected;
+      selected = nextIndex;
       wrap.querySelector('.car-detail__photo-count').textContent = `${selected+1} / ${images.length}`;
       prev.disabled = selected===0;next.disabled = selected===images.length-1;
-      wrap.querySelectorAll('[data-photo-index]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.photoIndex)===selected)));
+      thumbnails.forEach((button,index)=>button.setAttribute('aria-pressed',String(index===selected)));
+      if (changed || forceCenter) centerThumbnail(animate && changed);
+    };
+    const layout = () => {
+      if (removed || !track.clientWidth) return;
+      if (rail && thumbnails.length) {
+        // Include the flex gap beside each spacer so both endpoint thumbnails
+        // can be centered at the rail's minimum and maximum scroll positions.
+        const gap = parseFloat(getComputedStyle(rail).columnGap) || 0;
+        const firstWidth = thumbnails[0].getBoundingClientRect().width;
+        const lastWidth = thumbnails.at(-1).getBoundingClientRect().width;
+        rail.style.setProperty('--cd-thumb-start',`${Math.max(0,(rail.clientWidth-firstWidth)/2-gap)}px`);
+        rail.style.setProperty('--cd-thumb-end',`${Math.max(0,(rail.clientWidth-lastWidth)/2-gap)}px`);
+      }
+      intended = null;
+      measuredWidth = track.clientWidth;
+      track.scrollTo({left:selected*track.clientWidth,behavior:'auto'});
+      selectPhoto(selected,{animate:false,forceCenter:true});
+    };
+    const scheduleLayout = () => {
+      if (layoutFrame===null) layoutFrame=requestAnimationFrame(()=>{layoutFrame=null;layout();});
     };
     const go = index => {
       const target = Math.max(0,Math.min(images.length-1,index));
-      const reduceMotion = typeof matchMedia==='function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-      track.scrollTo({left:target*track.clientWidth,behavior:reduceMotion?'auto':'smooth'});
+      intended = target;
+      selectPhoto(target,{forceCenter:true});
+      track.scrollTo({left:target*track.clientWidth,behavior:reduceMotion()?'auto':'smooth'});
     };
     const click = event => {
       const button = event.target.closest('button');
@@ -131,13 +169,60 @@ export function mountCarDetail({item, container, onUpdate} = {}) {
       if(button.hasAttribute('data-photo-index'))go(Number(button.dataset.photoIndex));
     };
     const key = event => {
-      if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();go(selected+(event.key==='ArrowRight'?1:-1));}
+      const thumb = event.target.closest('[data-photo-index]');
+      if(event.target!==track&&!thumb)return;
+      let target;
+      if(event.key==='ArrowRight')target=selected+1;
+      else if(event.key==='ArrowLeft')target=selected-1;
+      else if(event.key==='Home')target=0;
+      else if(event.key==='End')target=images.length-1;
+      else return;
+      event.preventDefault();
+      target=Math.max(0,Math.min(images.length-1,target));
+      if(thumb)thumbnails[target]?.focus({preventScroll:true});
+      go(target);
     };
-    const scroll = () => {if(frame===null)frame=requestAnimationFrame(()=>{frame=null;update();});};
-    wrap.addEventListener('click',click);track.addEventListener('keydown',key);track.addEventListener('scroll',scroll,{passive:true});
-    wrap.querySelectorAll('img').forEach(img=>img.addEventListener('error',()=>{img.src=PLACEHOLDER;},{once:true}));
-    update();
-    galleryCleanup=()=>{wrap.removeEventListener('click',click);track.removeEventListener('keydown',key);track.removeEventListener('scroll',scroll);if(frame!==null)cancelAnimationFrame(frame);};
+    const syncFromTrack = () => {
+      if(removed)return;
+      if(track.clientWidth!==measuredWidth){scheduleLayout();return;}
+      if(intended!==null){
+        // Keep an explicit arrow/thumbnail selection stable during its smooth
+        // transition. A user's new swipe immediately cancels this target.
+        if(Math.abs(track.scrollLeft-intended*track.clientWidth)>1)return;
+        intended=null;
+      }
+      selectPhoto(nearestPhoto());
+    };
+    const scroll = () => {
+      if(scrollFrame===null)scrollFrame=requestAnimationFrame(()=>{scrollFrame=null;syncFromTrack();});
+    };
+    const finishScroll = () => {intended=null;syncFromTrack();};
+    const beginSwipe = () => {intended=null;};
+    const imageError = event => {
+      const image=event.target;
+      if(image.tagName==='IMG'&&!image.dataset.failed){image.dataset.failed='true';image.src=PLACEHOLDER;}
+    };
+    wrap.addEventListener('click',click);
+    wrap.addEventListener('keydown',key);
+    wrap.addEventListener('error',imageError,true);
+    track.addEventListener('scroll',scroll,{passive:true});
+    track.addEventListener('scrollend',finishScroll,{passive:true});
+    track.addEventListener('pointerdown',beginSwipe,{passive:true});
+    track.addEventListener('touchstart',beginSwipe,{passive:true});
+    track.addEventListener('wheel',beginSwipe,{passive:true});
+    window.addEventListener('resize',scheduleLayout,{passive:true});
+    const resizeObserver = typeof ResizeObserver==='function'?new ResizeObserver(scheduleLayout):null;
+    resizeObserver?.observe(track);
+    if(rail){resizeObserver?.observe(rail);resizeObserver?.observe(thumbnails[0]);resizeObserver?.observe(thumbnails.at(-1));}
+    layout();scheduleLayout();
+    galleryCleanup=()=>{
+      removed=true;
+      wrap.removeEventListener('click',click);wrap.removeEventListener('keydown',key);wrap.removeEventListener('error',imageError,true);
+      track.removeEventListener('scroll',scroll);track.removeEventListener('scrollend',finishScroll);
+      track.removeEventListener('pointerdown',beginSwipe);track.removeEventListener('touchstart',beginSwipe);track.removeEventListener('wheel',beginSwipe);
+      window.removeEventListener('resize',scheduleLayout);resizeObserver?.disconnect();
+      if(scrollFrame!==null)cancelAnimationFrame(scrollFrame);if(layoutFrame!==null)cancelAnimationFrame(layoutFrame);
+    };
   }
 
   function loadState(message, {loading=false,retry=false}={}) {
