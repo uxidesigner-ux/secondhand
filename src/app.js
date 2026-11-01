@@ -1,5 +1,5 @@
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL} from './config.js';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,protectedSearchUrl} from './config.js';
 const $=s=>document.querySelector(s);
 const icons={search:'<circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/>',heart:'<path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0L12 5.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.4a5.5 5.5 0 0 0 0-7.8Z"/>',pin:'<path d="M20 10c0 6-8 11-8 11S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',chevron:'<path d="m9 5 7 7-7 7"/>',arrow:'<path d="M4 12h16m-6-6 6 6-6 6"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/>',sliders:'<path d="M4 7h8m4 0h4M4 17h3m4 0h9"/><circle cx="14" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',globe:'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',car:'<path d="m5 7 2-4h10l2 4 2 3v8H3v-8l2-3Zm0 0h14M6 13h2m8 0h2M5 18v3m14-3v3"/>',box:'<path d="m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4m-9 4v10M7 5l9 4"/>'};
 const icon=n=>`<svg viewBox="0 0 24 24" aria-hidden="true">${icons[n]||icons.box}</svg>`;
@@ -30,6 +30,7 @@ async function searchLive(){
  if(state.mode!=='live'||state.page==='saved'){render();return;}
  state.live=[];state.providers=[];state.fetchedAt=null;state.error='';state.partial=false;state.requested=false;
  if(!state.query.trim()){render();return;}
+ if(REQUIRES_LOGIN_REDIRECT&&state.query.trim()){location.assign(protectedSearchUrl({query:state.query,kind:state.kind,source:state.source}));return;}
  if(state.query.length>80){state.error='검색어는 80자 이내로 입력해 주세요.';render();return;}
  state.requested=true;state.loading=true;render();
  const controller=new AbortController();requestController=controller;const version=requestVersion;
@@ -71,8 +72,8 @@ function render(){
  $('#location-label').textContent=state.coords?'내 위치 기준':state.region||'전국';$('#nearby-open').classList.toggle('selected',!!state.coords);
  $('#saved-count').textContent=state.saved.size||'';
  const isSaved=state.page==='saved';
- $('#mode-title').textContent=state.mode==='demo'?'샘플 체험 중이에요':state.loading?'여러 서비스에서 매물을 찾고 있어요':state.error?'검색 연결을 확인해 주세요':state.requested?'실제 검색 결과를 모았어요':'검색하면 실제 매물을 찾아요';
- $('#mode-copy').textContent=state.mode==='demo'?'예시 매물과 이미지예요. 실제 판매 상품이 아니에요.':state.loading?'접근 가능한 서비스의 공개 매물을 확인하고 있어요.':state.fetchedAt?`${when(state.fetchedAt)} 확인 · 판매 여부는 원문에서 확인해 주세요.`:'서비스별 연결 상태와 가져온 결과를 함께 보여 드려요.';
+ $('#mode-title').textContent=state.mode==='demo'?'샘플 체험 중이에요':state.loading?'여러 서비스에서 매물을 찾고 있어요':state.error?'검색 연결을 확인해 주세요':state.requested?'실제 검색 결과를 모았어요':REQUIRES_LOGIN_REDIRECT?'로그인 후 실제 매물을 찾아요':'검색하면 실제 매물을 찾아요';
+ $('#mode-copy').textContent=state.mode==='demo'?'예시 매물과 이미지예요. 실제 판매 상품이 아니에요.':state.loading?'접근 가능한 서비스의 공개 매물을 확인하고 있어요.':state.fetchedAt?`${when(state.fetchedAt)} 확인 · 판매 여부는 원문에서 확인해 주세요.`:REQUIRES_LOGIN_REDIRECT?'검색하면 Vercel 로그인이 필요한 보호된 화면으로 이동해요.':'서비스별 연결 상태와 가져온 결과를 함께 보여 드려요.';
  $('#mode-switch').innerHTML=(state.mode==='demo'?'실제 검색':'샘플 체험')+icon('chevron');
  let items=filterListings(data(),options());if(isSaved)items=items.filter(i=>state.saved.has(i.id));
  $('#results-title').textContent=isSaved?'찜해 둔 매물':state.page==='services'?'중고 서비스, 한자리에':state.query?`‘${state.query}’ 검색 결과`:state.kind==='car'?'어떤 차를 찾고 있나요?':'어떤 물건을 찾고 있나요?';
@@ -96,7 +97,7 @@ function skeleton(){return `<div class="sr-only" role="status">실제 매물을 
 function empty(){
  const saved=state.page==='saved',live=state.mode==='live',error=live&&!saved?state.error:'';
  const title=saved?'조건에 맞는 찜한 매물이 없어요':live&&!state.requested&&!error?'검색어를 입력해 주세요':error?'검색 결과를 가져오지 못했어요':state.demoError&&!live?'샘플을 불러오지 못했어요':'조건에 맞는 매물이 없어요';
- const copy=saved?'선택한 종류·서비스·필터를 확인해 주세요.<br>찜은 검색 결과가 바뀌어도 이 기기에 남아 있어요.':error?esc(error):live&&!state.requested?'상품명이나 차종을 검색하면<br>연결 가능한 서비스의 실제 매물을 모아 보여 드려요.':`검색어나 필터를 바꿔 보세요.<br>${live?'연결된 서비스에서 가져온 결과만 검색해요.':'샘플 데이터에서 검색하고 있어요.'}`;
+ const copy=saved?'선택한 종류·서비스·필터를 확인해 주세요.<br>찜은 검색 결과가 바뀌어도 이 기기에 남아 있어요.':error?esc(error):live&&!state.requested?(REQUIRES_LOGIN_REDIRECT?'검색하면 보호된 검색 사이트로 이동해요.<br>이 프로젝트 접근 권한이 있는 Vercel 계정으로 로그인해 주세요.':'상품명이나 차종을 검색하면<br>연결 가능한 서비스의 실제 매물을 모아 보여 드려요.'):`검색어나 필터를 바꿔 보세요.<br>${live?'연결된 서비스에서 가져온 결과만 검색해요.':'샘플 데이터에서 검색하고 있어요.'}`;
  return `<div class="empty"><div class="empty-icon">${icon(saved?'heart':'search')}</div><h3>${title}</h3><p>${copy}</p>${error?'<button class="text-button" id="retry-search">다시 검색하기</button>':saved||data().length?'<button class="text-button" id="reset-results">필터 초기화</button>':''}</div>`;
 }
 function renderExternal(){const keys=state.source==='all'?sourceKeys():[state.source];$('#external-links').innerHTML=keys.map(k=>{const s=sources[k];return `<a class="service-link" href="${esc(s.url(state.query))}" target="_blank" rel="noopener noreferrer"><span class="service-letter" style="color:${s.color};background:${s.color}15">${s.letter}</span><span><strong>${s.name}</strong><small>${s.keyword&&state.query?`‘${esc(state.query)}’ 검색 결과 열기`:state.kind==='car'?'차량 목록 열기':'서비스에서 찾아보기'}</small></span>${icon('arrow')}</a>`;}).join('');$('.external-note').textContent=state.kind==='car'?'차량 검색어와 필터는 이동한 사이트에서 다시 설정해 주세요. KB차차차는 서비스 홈으로 연결돼요.':'외부 사이트에서 필터를 다시 설정해 주세요. 당근은 서비스 홈으로 연결돼요.';}
@@ -118,7 +119,7 @@ function toggleSave(id){
  else{const item=data().find(x=>x.id===id);if(!item||!validateListing(item))return;if(state.savedRecords.size>=200){notify('찜은 최대 200개까지 저장할 수 있어요.');return;}state.saved.add(id);state.savedRecords.set(id,{...item,savedAt:new Date().toISOString()});}
  persist();render();notify(state.saved.has(id)?'찜한 매물에 담았어요.':'찜을 취소했어요.');
 }
-function info(){openSheet('USED를 소개해요',`<div class="info-block"><h3>검색할 때 실제 매물을 가져와요</h3><p>검색어를 입력하면 연결 가능한 서비스의 공개 검색 결과에서 매물 정보를 가져와요. 각 서비스의 일부 결과를 표시하며 웹상의 모든 매물을 포함하지 않아요. 연결되지 않은 서비스와 오류는 결과 위에 표시해요.</p></div><div class="info-block"><h3>정보가 없는 경우도 있어요</h3><p>가격·사진·지역·판매 상태는 원문에서 제공한 범위만 보여요. 조건 필터는 가져온 결과에 적용하며, 정보가 없는 매물은 그 조건에서 제외돼요. 판매 여부와 변경된 가격은 원문에서 확인해 주세요.</p></div><div class="info-block"><h3>찜한 매물과 내 위치</h3><p>찜은 저장 당시 정보를 이 브라우저에 보관해요. 삭제되거나 판매가 끝난 매물도 찜에 남을 수 있어요. 다른 기기와 동기화되지 않으며 브라우저 데이터를 지우면 사라져요. 위치는 권한 허용 시 이번 방문에서만 사용하고 검색 서버에 전송하지 않아요. 검색어와 선택한 서비스는 검색 서버와 해당 서비스에 전달돼요.</p></div><div class="info-block"><h3>거래는 원문 서비스에서</h3><p>USED는 구매·결제·채팅을 제공하지 않아요. 토스 디자인 시스템의 공개 원칙을 참고한 독립 구현이며 토스나 매물 제공 서비스의 공식 제휴 서비스가 아니에요. 샘플 체험은 실제 검색과 별도로 제공돼요.</p></div>`,'<button class="primary-button" id="info-done">확인했어요</button>');$('#info-done').onclick=closeSheet;}
+function info(){openSheet('USED를 소개해요',`<div class="info-block"><h3>검색할 때 실제 매물을 가져와요</h3><p>실제 검색은 접근 보호된 사이트에서 제공하며, Vercel 프로젝트 접근 권한이 있는 계정으로 로그인해야 해요. 검색어를 입력하면 연결 가능한 서비스의 공개 검색 결과에서 매물 정보를 가져와요. 각 서비스의 일부 결과를 표시하며 웹상의 모든 매물을 포함하지 않아요. 연결되지 않은 서비스와 오류는 결과 위에 표시해요.</p></div><div class="info-block"><h3>정보가 없는 경우도 있어요</h3><p>가격·사진·지역·판매 상태는 원문에서 제공한 범위만 보여요. 조건 필터는 가져온 결과에 적용하며, 정보가 없는 매물은 그 조건에서 제외돼요. 판매 여부와 변경된 가격은 원문에서 확인해 주세요.</p></div><div class="info-block"><h3>찜한 매물과 내 위치</h3><p>찜은 저장 당시 정보를 이 브라우저에 보관해요. 삭제되거나 판매가 끝난 매물도 찜에 남을 수 있어요. 다른 기기와 동기화되지 않으며 브라우저 데이터를 지우면 사라져요. 위치는 권한 허용 시 이번 방문에서만 사용하고 검색 서버에 전송하지 않아요. 검색어와 선택한 서비스는 검색 서버와 해당 서비스에 전달돼요.</p></div><div class="info-block"><h3>거래는 원문 서비스에서</h3><p>USED는 구매·결제·채팅을 제공하지 않아요. 토스 디자인 시스템의 공개 원칙을 참고한 독립 구현이며 토스나 매물 제공 서비스의 공식 제휴 서비스가 아니에요. 샘플 체험은 실제 검색과 별도로 제공돼요.</p></div>`,'<button class="primary-button" id="info-done">확인했어요</button>');$('#info-done').onclick=closeSheet;}
 function install(){openSheet('홈 화면에서 바로 만나요',`<div class="info-block"><img src="./assets/apple-touch-icon.png" alt="흰 배경의 USED 앱 아이콘" width="76" height="76" style="border:1px solid #e5e8eb;border-radius:18px"><h3>내 아이폰에 USED 추가하기</h3><ol><li>Safari에서 이 페이지를 열어 주세요.</li><li>공유 버튼을 누른 뒤 ‘홈 화면에 추가’를 선택해요.</li><li>이름이 USED인지 확인하고 ‘추가’를 누르면 끝이에요.</li></ol><p>흰 배경의 USED 아이콘으로 앱처럼 열 수 있어요.</p></div>`,'<button class="primary-button" id="install-done">알겠어요</button>');$('#install-done').onclick=closeSheet;}
 document.addEventListener('click',e=>{
  const el=e.target.closest('button');if(!el)return;
@@ -138,5 +139,11 @@ $('#filters-open').onclick=()=>filters();$('#price-open').onclick=()=>filters(tr
 $('#mode-switch').onclick=()=>{cancelSearch();state.mode=state.mode==='demo'?'live':'demo';if(state.mode==='demo'){render();loadDemo();}else searchLive();};
 $('#info-open').onclick=info;$('#install-open').onclick=install;
 $('#query').maxLength=80;
+const initial=new URLSearchParams(location.search);
+if(['goods','car'].includes(initial.get('kind')))state.kind=initial.get('kind');
+if(['all',...sourceKeys()].includes(initial.get('source')))state.source=initial.get('source');
+state.query=(initial.get('q')||'').slice(0,80);$('#query').value=state.query;
+if(REQUIRES_LOGIN_REDIRECT){$('#search-form button[type=submit]').setAttribute('aria-label','로그인 후 검색');}
 paintIcons();render();
+if(state.query&&!REQUIRES_LOGIN_REDIRECT)searchLive();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});

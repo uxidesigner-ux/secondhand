@@ -1,6 +1,6 @@
 # USED — 중고 통합 검색
 
-모바일 우선 중고물품·중고차 검색 PWA. GitHub Pages 화면에서 별도 Node 검색 API에 요청하고, 공개 검색 결과를 정규화해 목록으로 표시합니다. 공식 제휴 API 서비스가 아니며, 공개 웹페이지 구조나 접근 정책 변경으로 연결이 중단될 수 있습니다.
+모바일 우선 중고물품·중고차 검색 PWA. GitHub Pages의 검색 버튼은 접근 보호된 Vercel 검색 화면으로 이동합니다. 권한이 있는 Vercel 계정으로 로그인한 뒤 같은 출처의 Node 검색 API에서 공개 매물을 정규화해 표시합니다. 공식 제휴 API 서비스가 아니며, 공개 웹페이지 구조나 접근 정책 변경으로 연결이 중단될 수 있습니다.
 
 ## 실행
 
@@ -13,7 +13,7 @@ npm run dev
 # http://127.0.0.1:4173
 ```
 
-`src/config.js`의 `SEARCH_API_URL`을 `/api/search`로 두면 로컬 서버를 사용합니다. 배포 시 검증된 검색 API의 절대 HTTPS 주소를 지정합니다. 비밀 키를 프런트엔드에 넣지 않습니다.
+`src/config.js`는 로컬·Vercel에서 같은 출처 `/api/search`를 사용합니다. GitHub Pages에서 검색하면 검색어·종류·서비스만 보호된 사이트 URL에 전달합니다. 인증·우회 토큰을 코드에 넣지 않습니다. 로그인은 Vercel 자체에서 처리하며 공개 프런트엔드가 보호된 API를 프록시하지 않습니다.
 
 ## 실제 검색 흐름
 
@@ -38,9 +38,9 @@ npm run dev
 
 화면은 GitHub Pages (`main`, root)로 유지합니다. 검색 API는 Vercel `used-search-api` 프로젝트의 `api/search.js`에서 실행합니다. Node 22+, 서울 리전, 함수 최대 25초, 공급자 요청 전체 18초 제한. 기존 GitHub 인증에는 workflow 권한이 없으므로 Actions 파일을 추가하지 않습니다.
 
-Vercel 프로젝트는 새 프로젝트 기본 접근 보호를 유지합니다. 공개 전환이 승인되면 API 공개 접근을 확인한 뒤 `src/config.js`를 검증된 주소로 설정하고 GitHub Pages에 게시합니다. 보호용 토큰을 코드나 공개 URL에 삽입하지 않습니다.
+사용자가 접근 보호 유지를 선택했습니다. Vercel Authentication을 유지하고 화면과 API를 동일 보호 도메인 https://used-search-api.vercel.app/ 에 배치합니다. GitHub Pages는 로그인 후 실제 검색으로 이동하는 진입점입니다. 로그인하더라도 프로젝트 접근 권한이 있어야 합니다. 공유 링크·우회 토큰·인증 해제는 사용하지 않습니다. 찜 데이터는 사이트별 브라우저 저장소에 보관되며 GitHub Pages와 Vercel 간 자동 이전되지 않습니다.
 
-배포 파일: `api/`, `server/handler.mjs`, `server/providers/`, `src/search.js`, `package.json`, `vercel.json`. 정적 화면과 샘플 이미지는 검색 API 배포에 필요하지 않습니다.
+배포 파일: `api/`, `server/handler.mjs`, `server/providers/`, `src/search.js`, `package.json`, `vercel.json`. 보호된 앱 배포에는 `index.html`, `src/`, `assets/`, `data/`, manifest와 service worker도 포함합니다.
 
 ## 검증
 

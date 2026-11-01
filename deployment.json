@@ -4,5 +4,6 @@
   "apiProjectId": "prj_0Q184QiP8R7uAhrWcBDGrHbk8lmL",
   "teamId": "team_Kt8Z1AHvVqYbTTAXft7QmhqF",
   "apiUrl": "https://used-search-api.vercel.app/api/search",
-  "publicAccessApprovalRequired": true
+  "access": "vercel-authentication-required",
+  "publicAccessApproved": false
 }
