@@ -1,4 +1,4 @@
-import {getCanonicalRedirect} from './config.js?v=1.2.0';
+import {getCanonicalRedirect} from './config.js?v=1.2.1';
 
 const destination=getCanonicalRedirect(location.href);
 if(destination){
@@ -21,5 +21,5 @@ if(destination){
   document.body.replaceChildren(main);
   location.replace(destination);
 }else{
-  await import('./app.js?v=1.2.0');
+  await import('./app.js?v=1.2.1');
 }

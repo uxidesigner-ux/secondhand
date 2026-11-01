@@ -1,14 +1,9 @@
 import { createCipheriv } from 'node:crypto';
 import https from 'node:https';
-/**
- * Encar's unauthenticated public search, observed in car.encar.com/list/car.
- * iNav Search.QueryWithPlaceholder supplies the keyword expression used below.
- * No cookies, credentials, private API, CAPTCHA bypass, or third-party proxy.
- */
-const ENCAR_API = 'https://api.encar.com/search/car/list/mobile';
+import {buildEncarUrl, parseEncarResponse} from '../../src/providers/encar.js';
+export {buildEncarUrl, normalizeEncarCar, parseEncarResponse} from '../../src/providers/encar.js';
 const CAR_SOURCES = ['encar', 'kb', 'kcar'];
 const fuels = { '가솔린': 'gasoline', '디젤': 'diesel', '가솔린+전기': 'hybrid', '디젤+전기': 'hybrid', '전기': 'electric', 'LPG': 'lpg', 'LPG(일반인 구입)': 'lpg', 'LPG+전기': 'hybrid' };
-const text = value => typeof value === 'string' ? value.trim() : '';
 
 // Diagnostics deliberately omit request URLs, search terms, response bodies, and headers.
 const safeToken = value => typeof value === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : null;
@@ -36,49 +31,6 @@ function logCarFailure(source, error, startedAt) {
     upstreamStatus: Number.isInteger(error?.upstreamStatus) ? error.upstreamStatus : null,
     contentType: typeof error?.contentType === 'string' ? error.contentType : null,
   }));
-}
-
-export function buildEncarUrl(query = '', limit = 24) {
-  // Prevent user text from becoming a facet expression. Spaces remain keyword text.
-  const term = String(query).normalize('NFKC').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
-  if (String(query).trim() && !term) throw new Error('검색어에 문자 또는 숫자를 입력해 주세요.');
-  const url = new URL(ENCAR_API);
-  url.searchParams.set('count', 'true');
-  url.searchParams.set('q', term ? `(And.Hidden.N._.CarType.A._.Search.keyword(${term}).)` : '(And.Hidden.N._.CarType.A.)');
-  url.searchParams.set('sr', `|MobileModifiedDate|0|${Math.max(1, Math.min(40, Math.floor(Number(limit) || 24)))}`);
-  return url;
-}
-
-export function normalizeEncarCar(car, collectedAt = new Date().toISOString()) {
-  if (!car || !/^\d+$/.test(String(car.Id))) return null;
-  // Lease/rental headline prices are not comparable to a cash purchase price.
-  if (car.Lease === '1' || (car.SellType && car.SellType !== '일반')) return null;
-  const price = Math.round(Number(car.Price) * 10000); // Official cards display Price in 만원.
-  if (!Number.isSafeInteger(price) || price <= 0) return null;
-  const title = [car.Manufacturer, car.Model, car.Badge, car.BadgeDetail].map(text).filter(Boolean).join(' ');
-  if (!title) return null;
-  const photo = Array.isArray(car.Photos) ? (car.Photos.find(p => p.type === '001') || car.Photos[0])?.location : null;
-  const image = typeof photo === 'string' && /^\/carpicture[\w/.-]+\.(?:jpg|jpeg|png)$/i.test(photo) ? `https://ci.encar.com${photo}` : '';
-  const year = /^\d{4}$/.test(String(car.FormYear)) ? Number(car.FormYear) : Number.isFinite(Number(car.Year)) && Number(car.Year) >= 190001 ? Math.floor(Number(car.Year) / 100) : null;
-  const mileage = typeof car.Mileage === 'number' && Number.isSafeInteger(car.Mileage) && car.Mileage >= 0 ? car.Mileage : null;
-  return {
-    id: `encar-${car.Id}`, title, price, kind: 'car', source: 'encar', sourceName: '엔카',
-    category: 'car', condition: 'unknown', methods: [], status: 'unknown',
-    region: text(car.OfficeCityState), lat: null, lng: null, publishedAt: null,
-    collectedAt, image, url: `https://fem.encar.com/cars/detail/${car.Id}`,
-    brand: text(car.Manufacturer) || null, year, mileage, fuel: fuels[car.FuelType] || 'unknown',
-    fuelLabel: text(car.FuelType), demo: false,
-  };
-}
-
-export function parseEncarResponse(payload, collectedAt) {
-  if (!payload || !Array.isArray(payload.SearchResults) || !Number.isFinite(Number(payload.Count))) throw Object.assign(new Error('엔카 검색 응답 형식이 변경됐어요.'), {stage:'schema'});
-  const unique = new Map();
-  for (const car of payload.SearchResults) {
-    const item = normalizeEncarCar(car, collectedAt);
-    if (item) unique.set(item.id, item);
-  }
-  return { items: [...unique.values()], total: Number(payload.Count) };
 }
 
 // Use the same public URL, but preserve HTTP 407 as an observable response.

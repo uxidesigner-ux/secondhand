@@ -1,12 +1,12 @@
 {
   "name": "used-search",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
     "start": "python3 -m http.server 4173",
-    "check": "node --check src/app.js && node --check src/search.js && node --check api/search.js && node --check server/handler.mjs && node --check api/detail.js && node --check server/detail-handler.mjs && node --check server/providers/kb-detail.mjs && node --check src/car-detail.js && node --check src/detail-route.js && node --check src/entry.js && node --check src/config.js",
+    "check": "node --check src/app.js && node --check src/search.js && node --check api/search.js && node --check server/handler.mjs && node --check api/detail.js && node --check server/detail-handler.mjs && node --check server/providers/kb-detail.mjs && node --check src/car-detail.js && node --check src/detail-route.js && node --check src/entry.js && node --check src/config.js && node --check src/providers/encar.js && node --check src/encar-fallback.js",
     "dev": "node server/dev.mjs"
   }
 }

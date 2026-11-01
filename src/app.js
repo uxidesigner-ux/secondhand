@@ -1,8 +1,9 @@
-import {initRefresh} from './refresh.js?v=1.2.0';
-import {mountCarDetail} from './car-detail.js?v=1.2.0';
+import {initRefresh} from './refresh.js?v=1.2.1';
+import {mountCarDetail} from './car-detail.js?v=1.2.1';
 import {resolveDetailItem} from './detail-route.js';
+import {recoverEncar} from './encar-fallback.js?v=1.2.1';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.2.0';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.2.1';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -105,11 +106,13 @@ async function searchLive(){
  try{
   const url=new URL(SEARCH_API_URL,location.href);url.searchParams.set('q',state.query);url.searchParams.set('kind',state.kind);url.searchParams.set('source',state.source);
   const response=await fetch(url,{signal:controller.signal,cache:'no-store',headers:{Accept:'application/json'}});
-  const payload=await response.json().catch(()=>null);
+  let payload=await response.json().catch(()=>null);
+  if(version!==requestVersion)return;
+  payload=await recoverEncar({payload,status:response.status,kind:state.kind,source:state.source,query:state.query,signal:controller.signal});
   if(version!==requestVersion)return;
   if(Array.isArray(payload?.providers))state.providers=payload.providers.filter(p=>p&&Object.hasOwn(sources,p.source)&&['ok','unavailable','error'].includes(p.status));
   state.fetchedAt=payload?.fetchedAt;state.partial=Boolean(payload?.partial);
-  if(!response.ok)throw new Error(typeof payload?.error==='string'?payload.error:response.status===429?'검색 요청이 많아요. 잠시 후 다시 시도해 주세요.':`검색 서버에 연결하지 못했어요. (${response.status})`);
+  if(!response.ok&&!(response.status===502&&payload?.providers?.some(p=>p.status==='ok')))throw new Error(typeof payload?.error==='string'?payload.error:response.status===429?'검색 요청이 많아요. 잠시 후 다시 시도해 주세요.':`검색 서버에 연결하지 못했어요. (${response.status})`);
   if(!Array.isArray(payload?.items)||!Array.isArray(payload?.providers))throw new Error('검색 응답을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.');
   state.live=payload.items.filter(item=>item.demo!==true&&validateListing(item));
   for(const item of state.live)if(state.saved.has(item.id))state.savedRecords.set(item.id,item);
