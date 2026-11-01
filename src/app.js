@@ -1,9 +1,12 @@
-import {initRefresh} from './refresh.js?v=1.2.3';
-import {mountCarDetail} from './car-detail.js?v=1.2.3';
+import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.2.4';
+import {locateCurrentRegion} from './location-lookup.js?v=1.2.4';
+import {lookupRegionName} from './region-geocoder.js?v=1.2.4';
+import {initRefresh} from './refresh.js?v=1.2.4';
+import {mountCarDetail} from './car-detail.js?v=1.2.4';
 import {resolveDetailItem} from './detail-route.js';
-import {recoverEncar} from './encar-fallback.js?v=1.2.3';
+import {recoverEncar} from './encar-fallback.js?v=1.2.4';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.2.3';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.2.4';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -23,13 +26,13 @@ let stored=read('used:saved',[]);if(!Array.isArray(stored))stored=[];
 let snapshots=read('used:saved-records',[]);if(!Array.isArray(snapshots))snapshots=[];
 const savedRecords=new Map(snapshots.filter(validateListing).map(item=>[item.id,item]));
 const rejectedSavedIds=new Set(snapshots.filter(item=>!validateListing(item)).map(item=>item?.id));
-const state={kind:'goods',page:'home',source:'all',query:'',sort:'recent',filters:defaults(),region:'',coords:null,radius:5,saved:new Set([...stored.filter(id=>typeof id==='string'&&!/^demo(?:-|$)/i.test(id)&&!rejectedSavedIds.has(id)),...savedRecords.keys()]),savedRecords,live:[],loading:false,requested:false,error:'',providers:[],fetchedAt:null,partial:false,detailId:'',detailItem:null};
+const state={kind:'goods',page:'home',source:'all',query:'',sort:'recent',filters:defaults(),region:'',coords:null,radius:5,locationName:'',saved:new Set([...stored.filter(id=>typeof id==='string'&&!/^demo(?:-|$)/i.test(id)&&!rejectedSavedIds.has(id)),...savedRecords.keys()]),savedRecords,live:[],loading:false,requested:false,error:'',providers:[],fetchedAt:null,partial:false,detailId:'',detailItem:null};
 let draft={},toastTimer,requestController=null,requestVersion=0;
 let routeDepth=0,routeScroll=0,routeVersion=0,restoringScroll=false,scrollFrame=0,liveKey='';
 const searchKey=()=>JSON.stringify([state.kind,state.source,state.query]);
 history.scrollRestoration='manual';
 function syncQueries(){for(const id of ['query','home-query'])$('#'+id).value=state.query;}
-function routeData(){return {usedRoute:true,depth:routeDepth,page:state.page,kind:state.kind,source:state.source,query:state.query,filters:{...state.filters},sort:state.sort,region:state.region,scrollY:routeScroll,...(state.page==='detail'?{detailId:state.detailId,detailItem:validateListing(state.detailItem)?state.detailItem:null}:{})};}
+function routeData(){return {usedRoute:true,depth:routeDepth,page:state.page,kind:state.kind,source:state.source,query:state.query,filters:{...state.filters},sort:state.sort,location:locationSnapshot(state),scrollY:routeScroll,...(state.page==='detail'?{detailId:state.detailId,detailItem:validateListing(state.detailItem)?state.detailItem:null}:{})};}
 function routeUrl(){
  const url=new URL(location.href);url.search='';url.hash='';
  if(state.page!=='home')url.searchParams.set('view',state.page==='search'?'results':state.page);
@@ -68,7 +71,8 @@ async function restoreRoute(entry){
  state.query=entry?.usedRoute?entry.query:(params.get('q')||'').slice(0,80);
  const view=params.get('view');state.page=entry?.usedRoute?entry.page:['saved','services','detail'].includes(view)?view:state.query||view==='results'?'search':'home';
  const source=entry?.usedRoute?entry.source:params.get('source');state.source=['all',...sourceKeys()].includes(source)?source:'all';
- if(entry?.usedRoute){state.filters={...defaults(),...entry.filters};state.sort=entry.sort||'recent';state.region=entry.region||'';}
+ if(entry?.usedRoute){state.filters={...defaults(),...entry.filters};state.sort=entry.sort||'recent';}
+ Object.assign(state,locationFromHistory(entry));
  state.detailId=state.page==='detail'?String(entry?.detailId||params.get('item')||'').slice(0,512):'';
  state.detailItem=state.page==='detail'?resolveDetailItem({id:state.detailId,candidates:[entry?.detailItem,...state.live,...state.savedRecords.values()]}):null;
  if(state.page==='detail'&&REQUIRES_LOGIN_REDIRECT){
@@ -120,8 +124,10 @@ async function searchLive(){
  }finally{clearTimeout(timeout);if(version===requestVersion){state.loading=false;requestController=null;liveKey=searchKey();render();}}
 }
 function filterSummary(){const f=state.filters,v=[];for(const k of state.kind==='car'?['brand','fuel','status']:['category','condition','method','status'])if(f[k]!=='all')v.push(labels[k][f[k]]);if(f.minPrice!==''||f.maxPrice!=='')v.push(`${f.minPrice!==''?money(+f.minPrice):'0원'} ~ ${f.maxPrice!==''?money(+f.maxPrice):'제한 없음'}`);if(state.kind==='car'){if(f.minYear)v.push(`${f.minYear}년부터`);if(f.maxMileage)v.push(`${(+f.maxMileage).toLocaleString()}km 이하`);}return v;}
-function resetFilters(){state.filters=defaults();state.region='';state.coords=null;state.source='all';state.sort='recent';$('#sort').value='recent';if(state.page!=='saved')searchLive();else render();}
+function resetFilters(){state.filters=defaults();Object.assign(state,normalizeLocation());state.source='all';state.sort='recent';$('#sort').value='recent';if(state.page!=='saved')searchLive();else render();}
 function render(){
+ if(!state.coords&&state.sort==='distance')state.sort='recent';
+ $('#sort').value=state.sort;
  const home=state.page==='home',isDetail=state.page==='detail';
  $('#detail-header').hidden=!isDetail;$('#detail-screen').hidden=!isDetail;$('#detail-actions').hidden=!isDetail;$('.bottom-nav').hidden=isDetail;$('.footnote').hidden=isDetail;
  $('.app').classList.toggle('detail-view',isDetail);
@@ -143,7 +149,7 @@ function render(){
  $('#suggestions').innerHTML='<span>추천 검색</span>'+(state.kind==='car'?['그랜저','쏘렌토','BMW','테슬라']:['아이폰','에어팟','카메라','의자']).map(x=>`<button data-suggest="${x}">${x}</button>`).join('');
  $('#source-tabs').innerHTML=[['all','전체'],...sourceKeys().map(k=>[k,k==='other'?'기타':sources[k].name])].map(([key,name])=>`<button data-source="${key}" aria-pressed="${state.source===key}" class="${state.source===key?'active':''}">${name}</button>`).join('');
  const summary=filterSummary();$('#filter-summary').textContent=summary.join(' · ')||'필터';$('#filters-open').title=summary.join(' · ')||'필터 설정';$('#filters-open').classList.toggle('selected',!!summary.length);$('#filter-count').hidden=!summary.length;$('#filter-count').textContent=summary.length;
- const locationText=state.coords?`내 위치 · ${state.radius}km`:state.region;
+ const locationText=selectedLocationText(state);
  $('#location-label').textContent=locationText||'전국';$('#nearby-label').textContent=locationText||'내 주변';
  $('#nearby-open').classList.toggle('selected',Boolean(locationText));
  for(const id of ['location-open','nearby-open']){const button=$('#'+id);button.title=locationText||'전국';button.setAttribute('aria-label',`지역 설정: ${locationText||'전국'}`);}
@@ -177,15 +183,47 @@ function empty(){
  return `<div class="empty"><div class="empty-icon">${icon(saved?'heart':'search')}</div><h3>${title}</h3><p>${copy}</p>${error?'<button class="text-button" id="retry-search">다시 검색하기</button>':saved||data().length?'<button class="text-button" id="reset-results">필터 초기화</button>':''}</div>`;
 }
 function renderExternal(){const keys=state.source==='all'?sourceKeys():[state.source];$('#external-links').innerHTML=keys.map(k=>{const s=sources[k];return `<a class="service-link" href="${esc(s.url(state.query))}" target="_blank" rel="noopener noreferrer"><span class="service-letter" style="color:${s.color};background:${s.color}15">${s.letter}</span><span><strong>${s.name}</strong><small>${s.keyword&&state.query?`‘${esc(state.query)}’ 검색 결과 열기`:state.kind==='car'?'차량 목록 열기':'서비스에서 찾아보기'}</small></span>${icon('arrow')}</a>`;}).join('');$('.external-note').textContent=state.kind==='car'?'차량 검색어와 필터는 이동한 사이트에서 다시 설정해 주세요. KB차차차는 서비스 홈으로 연결돼요.':'외부 사이트에서 필터를 다시 설정해 주세요. 당근은 서비스 홈으로 연결돼요.';}
-let carDetailCleanup=null,detailMountedKey='';
+let carDetailCleanup=null,detailMountedKey='',sheetCleanup=null,sheetVersion=0;
+function cleanupSheet(){const cleanup=sheetCleanup;sheetCleanup=null;cleanup?.();}
 function clearCarDetail(){carDetailCleanup?.();carDetailCleanup=null;detailMountedKey='';}
-function openSheet(title,body,footer=''){ $('#sheet-body').onclick=null;$('#sheet-body').scrollTop=0;$('#sheet-title').textContent=title;$('#sheet-body').innerHTML=body;$('#sheet-footer').innerHTML=footer;paintIcons($('#sheet'));$('#sheet').showModal();document.body.style.overflow='hidden';}
-function closeSheet(){$('#sheet').close();}
-$('#sheet').addEventListener('close',()=>{document.body.style.overflow='';});$('#sheet-close').onclick=closeSheet;$('#sheet').addEventListener('click',e=>{if(e.target===$('#sheet')){const r=$('#sheet').getBoundingClientRect();if(e.clientY<r.top||e.clientX<r.left||e.clientX>r.right)closeSheet();}});
+function openSheet(title,body,footer=''){ cleanupSheet();sheetVersion++; $('#sheet-body').onclick=null;$('#sheet-body').scrollTop=0;$('#sheet-title').textContent=title;$('#sheet-body').innerHTML=body;$('#sheet-footer').innerHTML=footer;paintIcons($('#sheet'));$('#sheet').showModal();document.body.style.overflow='hidden';}
+function closeSheet(){cleanupSheet();$('#sheet').close();}
+$('#sheet').addEventListener('close',()=>{if(!$('#sheet').open){cleanupSheet();document.body.style.overflow='';}});$('#sheet-close').onclick=closeSheet;$('#sheet').addEventListener('click',e=>{if(e.target===$('#sheet')){const r=$('#sheet').getBoundingClientRect();if(e.clientY<r.top||e.clientX<r.left||e.clientX>r.right)closeSheet();}});
 function group(key,title){return `<section class="filter-group"><h3>${title}</h3><div class="options">${Object.entries(labels[key]).map(([v,l])=>`<button class="option ${draft[key]===v?'active':''}" data-option="${key}" data-value="${v}" aria-pressed="${draft[key]===v}">${l}</button>`).join('')}</div></section>`;}
 function numberField(key,placeholder,unit){return `<div class="input-wrap"><input id="f-${key}" type="number" inputmode="numeric" min="0" step="1" placeholder="${placeholder}" value="${esc(draft[key])}" aria-label="${placeholder}"><span>${unit}</span></div>`;}
 function filters(focusPrice=false){draft={...state.filters};let body='';if(state.kind==='car')body+=group('brand','제조사');else body+=group('category','카테고리');body+=`<section class="filter-group"><h3>가격 범위</h3><div class="input-row">${numberField('minPrice','최소 가격','원')}<span>–</span>${numberField('maxPrice','최대 가격','원')}</div></section>`;if(state.kind==='car'){body+=`<section class="filter-group"><h3>연식 · 주행거리</h3><div class="input-row">${numberField('minYear','최소 연식','년')}${numberField('maxMileage','최대 주행거리','km')}</div></section>`+group('fuel','연료');}else body+=group('condition','상품 상태')+group('method','거래 방법');body+=group('status','판매 상태')+'<p class="hint">서비스마다 제공하는 정보가 달라요. 필터는 이번에 가져온 결과에 적용되며, 해당 정보가 없는 매물은 조건에서 제외돼요.</p><p class="error" id="filter-error" role="alert"></p>';openSheet('원하는 조건으로 찾아요',body,'<button class="secondary-button" id="filter-reset">초기화</button><button class="primary-button" id="filter-apply">필터 적용하기</button>');$('#sheet-body').onclick=e=>{const b=e.target.closest('[data-option]');if(!b)return;draft[b.dataset.option]=b.dataset.value;b.parentElement.querySelectorAll('button').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',x===b);});};$('#filter-reset').onclick=()=>{draft=defaults();$('#sheet-body').querySelectorAll('input').forEach(input=>input.value='');$('#sheet-body').querySelectorAll('[data-option]').forEach(button=>{const selected=draft[button.dataset.option]===button.dataset.value;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',selected);});$('#filter-error').textContent='';};$('#filter-apply').onclick=()=>{for(const key of ['minPrice','maxPrice',...(state.kind==='car'?['minYear','maxMileage']:[])]){const val=$('#f-'+key).value;if(val!==''&&(!Number.isFinite(+val)||+val<0||!Number.isSafeInteger(+val))){$('#filter-error').textContent='0 이상의 정수를 입력해 주세요.';return;}draft[key]=val;}if(draft.minPrice!==''&&draft.maxPrice!==''&&+draft.minPrice>+draft.maxPrice){$('#filter-error').textContent='최대 가격은 최소 가격보다 커야 해요.';return;}if(draft.minYear!==''&&(+draft.minYear<1900||+draft.minYear>new Date().getFullYear()+1)){$('#filter-error').textContent='연식을 올바르게 입력해 주세요.';return;}state.filters={...draft};closeSheet();render();notify('필터를 적용했어요.');};if(focusPrice)$('#f-minPrice').focus();}
-function locationSheet(){openSheet('어디에서 찾을까요?',`<p class="hint">동네 이름을 입력하거나 현재 위치를 사용해 보세요.</p><input id="region-input" class="location-input" aria-label="지역 이름" placeholder="예: 서울, 강남구, 성수동" maxlength="50" value="${esc(state.region)}"><button class="geo-button" id="geo-get">${icon('pin')}현재 위치로 찾기</button><p class="hint" id="geo-status">위치는 이번 방문에만 사용하며 서버에 저장하지 않아요.</p><section class="filter-group"><h3>현재 위치 검색 반경</h3><div class="options">${[1,3,5,10,30,100].map(n=>`<button class="option ${state.radius===n?'active':''}" data-radius="${n}" aria-pressed="${state.radius===n}">${n}km</button>`).join('')}</div></section><p class="hint">지역을 직접 입력하면 매물의 지역명으로 검색해요. 현재 위치를 사용하면 좌표가 있는 매물만 반경 안에서 보여요.</p><p class="error" id="geo-error" role="alert"></p>`,'<button class="secondary-button" id="all-region">전국</button><button class="primary-button" id="region-apply">지역 적용하기</button>');let pendingCoords=state.coords,radius=state.radius;$('#sheet-body').onclick=e=>{const b=e.target.closest('[data-radius]');if(b){radius=+b.dataset.radius;b.parentElement.querySelectorAll('button').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',x===b);});}};$('#region-input').oninput=()=>{pendingCoords=null;$('#geo-status').textContent='입력한 지역명으로 검색해요.';};$('#geo-get').onclick=()=>{if(!navigator.geolocation){$('#geo-error').textContent='이 브라우저는 위치 찾기를 지원하지 않아요. 지역을 직접 입력해 주세요.';return;}$('#geo-get').disabled=true;$('#geo-status').textContent='현재 위치를 확인하고 있어요…';navigator.geolocation.getCurrentPosition(p=>{pendingCoords={lat:p.coords.latitude,lng:p.coords.longitude};if(!$('#geo-status'))return;$('#geo-status').textContent='현재 위치를 확인했어요. 적용하기를 눌러 주세요.';$('#region-input').value='';$('#geo-get').disabled=false;$('#geo-error').textContent='';},err=>{if(!$('#geo-error'))return;$('#geo-error').textContent=err.code===1?'위치 권한이 꺼져 있어요. Safari 설정에서 허용하거나 지역을 입력해 주세요.':'위치를 확인하지 못했어요. 다시 시도하거나 지역을 입력해 주세요.';$('#geo-status').textContent='';$('#geo-get').disabled=false;},{timeout:10000,maximumAge:60000,enableHighAccuracy:false});};$('#all-region').onclick=()=>{state.region='';state.coords=null;closeSheet();render();};$('#region-apply').onclick=()=>{state.coords=pendingCoords;state.region=pendingCoords?'':$('#region-input').value.trim();state.radius=radius;closeSheet();render();};}
+function locationSheet(){
+ const selection=locationSnapshot(state);
+ openSheet('어디에서 찾을까요?',`<p class="hint">동네 이름을 입력하거나 현재 위치를 사용해 보세요.</p><input id="region-input" class="location-input" aria-label="지역 이름" placeholder="예: 서울, 강남구, 성수동" maxlength="50" value="${esc(selection.coords?selection.locationName:selection.region)}"><button class="geo-button" id="geo-get">${icon('pin')}현재 위치로 찾기</button><p class="hint" id="geo-status">위치 좌표는 외부로 전송하지 않고 이 기기에서 지역명을 확인해요.</p><section class="filter-group"><h3>현재 위치 검색 반경</h3><div class="options">${[1,3,5,10,30,100].map(n=>`<button class="option ${selection.radius===n?'active':''}" data-radius="${n}" aria-pressed="${selection.radius===n}">${n}km</button>`).join('')}</div></section><p class="hint">지역을 직접 입력하면 지역명으로 검색해요. 현재 위치는 좌표가 있는 매물을 반경 안에서 보여 줘요. 위치와 반경은 이 탭의 방문 기록에 보관해 화면 이동·새로고침 때 복원해요.</p><p class="hint">지역명은 국내 행정동 경계 기준이며 GPS 오차나 경계 부근에서는 실제 주소와 다를 수 있어요. 필요하면 지역명을 직접 수정해 주세요.</p><p class="hint location-attribution">행정구역: <a href="https://sgis.kostat.go.kr/" target="_blank" rel="noopener noreferrer">통계청 SGIS</a> · <a href="https://github.com/vuski/admdongkor" target="_blank" rel="noopener noreferrer">vuski/admdongkor</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></p><p class="error" id="geo-error" role="alert"></p>`,'<button class="secondary-button" id="all-region">전국</button><button class="primary-button" id="region-apply">지역 적용하기</button>');
+ const input=$('#region-input'),getButton=$('#geo-get'),applyButton=$('#region-apply'),status=$('#geo-status'),error=$('#geo-error');
+ const version=sheetVersion;
+ let pending=selection,controller=null,alive=true;
+ const active=()=>alive&&version===sheetVersion&&$('#sheet').open&&$('#region-input')===input;
+ const cancelLookup=()=>{controller?.abort();controller=null;};
+ sheetCleanup=()=>{alive=false;cancelLookup();};
+ $('#sheet-body').onclick=e=>{const button=e.target.closest('[data-radius]');if(!button)return;pending.radius=+button.dataset.radius;button.parentElement.querySelectorAll('button').forEach(item=>{const selected=item===button;item.classList.toggle('active',selected);item.setAttribute('aria-pressed',selected);});};
+ input.oninput=()=>{cancelLookup();pending=normalizeLocation({region:input.value,radius:pending.radius});getButton.disabled=false;applyButton.disabled=false;status.textContent='입력한 지역명으로 검색해요.';error.textContent='';};
+ getButton.onclick=async()=>{
+  cancelLookup();const request=new AbortController();controller=request;
+  getButton.disabled=true;applyButton.disabled=true;error.textContent='';status.textContent='현재 위치와 지역명을 확인하고 있어요…';
+  try{
+   const found=await locateCurrentRegion({resolveName:lookupRegionName,signal:request.signal});
+   if(!active()||controller!==request||request.signal.aborted)return;
+   pending=normalizeLocation({...pending,coords:found.coords,locationName:found.locationName});
+   input.value=pending.locationName;
+   status.textContent=pending.locationName?`${pending.locationName} 주변이에요. 적용하기를 눌러 주세요.`:'현재 위치를 확인했어요. 적용하기를 눌러 주세요.';
+   error.textContent=found.warning||'';
+  }catch(reason){
+   if(!active()||controller!==request||request.signal.aborted)return;
+   status.textContent='';
+   error.textContent=reason.code==='permission'?'위치 권한이 꺼져 있어요. Safari 설정에서 허용하거나 지역을 입력해 주세요.':reason.code==='unsupported'?'이 브라우저는 위치 찾기를 지원하지 않아요. 지역을 직접 입력해 주세요.':'현재 위치를 확인하지 못했어요. 다시 시도하거나 지역을 입력해 주세요.';
+  }finally{
+   if(active()&&controller===request){controller=null;getButton.disabled=false;applyButton.disabled=false;}
+  }
+ };
+ $('#all-region').onclick=()=>{Object.assign(state,normalizeLocation());closeSheet();render();};
+ applyButton.onclick=()=>{Object.assign(state,normalizeLocation(pending.coords?pending:{region:input.value,radius:pending.radius}));closeSheet();render();};
+}
 function detail(id){
  const item=data().find(x=>x.id===id)||state.savedRecords.get(id);if(!item||!validateListing(item))return;
  state.detailId=id;state.detailItem=item;navigate('detail');
@@ -229,7 +267,7 @@ function toggleSave(id){
  else{const item=(state.page==='detail'&&state.detailItem?.id===id?state.detailItem:null)||data().find(x=>x.id===id);if(!item||!validateListing(item))return;if(state.savedRecords.size>=200){notify('찜은 최대 200개까지 저장할 수 있어요.');return;}state.saved.add(id);state.savedRecords.set(id,{...item,savedAt:new Date().toISOString()});}
  persist();render();notify(state.saved.has(id)?'찜한 매물에 담았어요.':'찜을 취소했어요.');
 }
-function info(){openSheet('USED를 소개해요',`<div class="info-block"><h3>검색할 때 실제 매물을 가져와요</h3><p>실제 검색은 접근 보호된 사이트에서 제공하며, Vercel 프로젝트 접근 권한이 있는 계정으로 로그인해야 해요. 검색어를 입력하면 연결 가능한 서비스의 공개 검색 결과에서 매물 정보를 가져와요. 각 서비스의 일부 결과를 표시하며 웹상의 모든 매물을 포함하지 않아요. 연결되지 않은 서비스와 오류는 결과 위에 표시해요.</p></div><div class="info-block"><h3>정보가 없는 경우도 있어요</h3><p>가격·사진·지역·판매 상태는 원문에서 제공한 범위만 보여요. 조건 필터는 가져온 결과에 적용하며, 정보가 없는 매물은 그 조건에서 제외돼요. 판매 여부와 변경된 가격은 원문에서 확인해 주세요.</p></div><div class="info-block"><h3>찜한 매물과 내 위치</h3><p>찜은 저장 당시 정보를 이 브라우저에 보관해요. 삭제되거나 판매가 끝난 매물도 찜에 남을 수 있어요. 다른 기기와 동기화되지 않으며 브라우저 데이터를 지우면 사라져요. 위치는 권한 허용 시 이번 방문에서만 사용하고 검색 서버에 전송하지 않아요. 검색어와 선택한 서비스는 검색 서버와 해당 서비스에 전달돼요.</p></div><div class="info-block"><h3>거래는 원문 서비스에서</h3><p>USED는 구매·결제·채팅을 제공하지 않아요. 토스 디자인 시스템의 공개 원칙을 참고한 독립 구현이며 토스나 매물 제공 서비스의 공식 제휴 서비스가 아니에요.</p></div>`,'<button class="primary-button" id="info-done">확인했어요</button>');$('#info-done').onclick=closeSheet;}
+function info(){openSheet('USED를 소개해요',`<div class="info-block"><h3>검색할 때 실제 매물을 가져와요</h3><p>실제 검색은 접근 보호된 사이트에서 제공하며, Vercel 프로젝트 접근 권한이 있는 계정으로 로그인해야 해요. 검색어를 입력하면 연결 가능한 서비스의 공개 검색 결과에서 매물 정보를 가져와요. 각 서비스의 일부 결과를 표시하며 웹상의 모든 매물을 포함하지 않아요. 연결되지 않은 서비스와 오류는 결과 위에 표시해요.</p></div><div class="info-block"><h3>정보가 없는 경우도 있어요</h3><p>가격·사진·지역·판매 상태는 원문에서 제공한 범위만 보여요. 조건 필터는 가져온 결과에 적용하며, 정보가 없는 매물은 그 조건에서 제외돼요. 판매 여부와 변경된 가격은 원문에서 확인해 주세요.</p></div><div class="info-block"><h3>찜한 매물과 내 위치</h3><p>찜은 저장 당시 정보를 이 브라우저에 보관해요. 삭제되거나 판매가 끝난 매물도 찜에 남을 수 있어요. 다른 기기와 동기화되지 않으며 브라우저 데이터를 지우면 사라져요. 위치 좌표는 지역명 확인과 거리 계산에만 사용하며 외부로 전송하지 않아요. 선택한 위치·지역명·반경은 이 탭의 방문 기록에 보관해 뒤로가기와 새로고침 때 복원해요. 검색어와 선택한 서비스는 검색 서버와 해당 서비스에 전달돼요.</p></div><div class="info-block"><h3>거래는 원문 서비스에서</h3><p>USED는 구매·결제·채팅을 제공하지 않아요. 토스 디자인 시스템의 공개 원칙을 참고한 독립 구현이며 토스나 매물 제공 서비스의 공식 제휴 서비스가 아니에요.</p></div>`,'<button class="primary-button" id="info-done">확인했어요</button>');$('#info-done').onclick=closeSheet;}
 function install(){
  const iconImage='<img src="./assets/apple-touch-icon-1.2.0.png" alt="흰 배경에 USED와 파란 도트가 있는 앱 아이콘" width="76" height="76" style="border:1px solid #e5e8eb;border-radius:18px">';
  if(REQUIRES_LOGIN_REDIRECT){

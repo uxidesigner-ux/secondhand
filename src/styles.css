@@ -32,3 +32,5 @@
 .header-actions{min-width:0;max-width:calc(100% - 105px)}
 .location-button{min-width:0}
 .location-button>span:not(#location-label),.header-actions>.icon-button{flex-shrink:0}
+
+.location-attribution a{text-decoration:underline;text-underline-offset:3px}
