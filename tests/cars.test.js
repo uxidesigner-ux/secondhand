@@ -57,3 +57,31 @@ test('K Car normalizes only public vehicle fields and rejects malformed rows',()
  assert.throws(()=>parseKcarResponse({data:{}}));
  assert.equal(parseKcarResponse({data:{totalCnt:1,rows:[{...raw,rentRegYn:'Y'}]}}).items.length,0);
 });
+
+test('car upstream diagnostics record HTTP403 without search terms, URLs or body', async t => {
+ const query='PRIVATE_QUERY_987';
+ const logs=[];
+ t.mock.method(globalThis,'fetch',async()=>new Response('PRIVATE_SELLER_BODY_654',{status:403,headers:{'content-type':'text/html; charset=utf-8'}}));
+ t.mock.method(console,'warn',value=>logs.push(value));
+ const result=await searchCars({query,source:'encar'});
+ assert.equal(result.providers[0].status,'error');
+ assert.equal(logs.length,1);
+ const diagnostic=JSON.parse(logs[0]);
+ assert.equal(diagnostic.event,'car_provider_failure');
+ assert.equal(diagnostic.source,'encar');assert.equal(diagnostic.upstreamStatus,403);
+ assert.equal(diagnostic.stage,'http');assert.equal(diagnostic.contentType,'text/html');
+ assert.equal(diagnostic.errorName,'Error');assert.equal(diagnostic.causeCode,null);
+ assert.ok(Number.isInteger(diagnostic.elapsedMs)&&diagnostic.elapsedMs>=0);
+ assert.deepEqual(Object.keys(diagnostic).sort(),['event','source','stage','elapsedMs','errorName','causeCode','upstreamStatus','contentType'].sort());
+ assert.equal(logs[0].includes(query),false);assert.equal(logs[0].includes('PRIVATE_SELLER_BODY'),false);assert.equal(logs[0].includes('https://'),false);
+});
+test('car network diagnostics keep cause codes while omitting raw error messages', async t => {
+ const logs=[];
+ t.mock.method(globalThis,'fetch',async()=>{throw Object.assign(new TypeError('failed URL with PRIVATE_QUERY'),{cause:{code:'UND_ERR_CONNECT_TIMEOUT',message:'private upstream details'}});});
+ t.mock.method(console,'warn',value=>logs.push(value));
+ await searchCars({query:'PRIVATE_QUERY',source:'encar'});
+ const diagnostic=JSON.parse(logs[0]);
+ assert.equal(diagnostic.stage,'fetch');assert.equal(diagnostic.errorName,'TypeError');
+ assert.equal(diagnostic.causeCode,'UND_ERR_CONNECT_TIMEOUT');assert.equal(diagnostic.upstreamStatus,null);
+ assert.equal(logs[0].includes('PRIVATE_QUERY'),false);assert.equal(logs[0].includes('private upstream'),false);
+});

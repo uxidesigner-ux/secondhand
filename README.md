@@ -40,6 +40,8 @@ npm run dev
 
 사용자가 접근 보호 유지를 선택했습니다. Vercel Authentication을 유지하고 화면과 API를 동일 보호 도메인 https://used-search-api.vercel.app/ 에 배치합니다. GitHub Pages는 로그인 후 실제 검색으로 이동하는 진입점입니다. 로그인하더라도 프로젝트 접근 권한이 있어야 합니다. 공유 링크·우회 토큰·인증 해제는 사용하지 않습니다. 찜 데이터는 사이트별 브라우저 저장소에 보관되며 GitHub Pages와 Vercel 간 자동 이전되지 않습니다.
 
+프로젝트의 `ssoProtection.deploymentType`은 `all`입니다. 기본 보호 설정은 프로덕션 별칭을 제외할 수 있으므로 배포마다 기본 도메인과 API의 비로그인 접근 차단을 확인합니다. 2026-11-01 확인 시 API는 302 로그인 이동을 반환했습니다.
+
 배포 파일: `api/`, `server/handler.mjs`, `server/providers/`, `src/search.js`, `package.json`, `vercel.json`. 보호된 앱 배포에는 `index.html`, `src/`, `assets/`, `data/`, manifest와 service worker도 포함합니다.
 
 ## 검증
@@ -48,6 +50,8 @@ npm run dev
 `npm run check`: 프런트엔드와 API 문법 검사.
 
 실제 네트워크 검증은 원문 접근 상태에 따라 달라지므로 단위 테스트에서 네트워크를 강제하지 않습니다. 배포 전 실제 키워드로 결과의 제목·가격·원문 URL을 확인합니다.
+
+2026-11-01 검증: 로컬에서 중고물품 4개 서비스와 자동차 3개 서비스의 실제 응답을 확인했습니다. Vercel 배포에서는 중고물품 4개 서비스·KB차차차·K Car 응답을 확인했으나 엔카 연결은 실패했습니다. 원문 서비스가 배포 환경에서 응답하는지에 따라 검색 가능 범위가 달라지며, 현재 배포에서 7개 서비스가 모두 정상이라는 보장은 하지 않습니다. 연결 오류는 화면에 서비스별로 표시하고 성공한 결과는 유지합니다.
 
 ## 개인정보·디자인
 

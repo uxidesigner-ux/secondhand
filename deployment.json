@@ -5,5 +5,6 @@
   "teamId": "team_Kt8Z1AHvVqYbTTAXft7QmhqF",
   "apiUrl": "https://used-search-api.vercel.app/api/search",
   "access": "vercel-authentication-required",
+  "protectionDeploymentType": "all",
   "publicAccessApproved": false
 }

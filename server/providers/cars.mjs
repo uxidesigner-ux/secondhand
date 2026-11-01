@@ -9,6 +9,34 @@ const CAR_SOURCES = ['encar', 'kb', 'kcar'];
 const fuels = { '가솔린': 'gasoline', '디젤': 'diesel', '가솔린+전기': 'hybrid', '디젤+전기': 'hybrid', '전기': 'electric', 'LPG': 'lpg', 'LPG(일반인 구입)': 'lpg', 'LPG+전기': 'hybrid' };
 const text = value => typeof value === 'string' ? value.trim() : '';
 
+// Diagnostics deliberately omit request URLs, search terms, response bodies, and headers.
+const safeToken = value => typeof value === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : null;
+const responseMeta = response => {
+  const type = response.headers.get('content-type')?.split(';')[0]?.trim();
+  return { upstreamStatus: response.status, contentType: type && /^[A-Za-z0-9.+-]+\/[A-Za-z0-9.+-]+$/.test(type) ? type : null };
+};
+async function fetchCar(url, options) {
+  let response;
+  try { response = await fetch(url, options); }
+  catch (error) { error.stage = 'fetch'; throw error; }
+  if (!response.ok) throw Object.assign(new Error('Upstream HTTP failure'), responseMeta(response), {stage: 'http'});
+  return response;
+}
+async function carJson(response) {
+  try { return await response.json(); }
+  catch (error) { Object.assign(error, responseMeta(response), {stage: 'json'}); throw error; }
+}
+function logCarFailure(source, error, startedAt) {
+  console.warn(JSON.stringify({
+    event: 'car_provider_failure', source,
+    stage: ['fetch','http','json','schema'].includes(error?.stage) ? error.stage : 'provider',
+    elapsedMs: Math.max(0, Date.now() - startedAt),
+    errorName: safeToken(error?.name), causeCode: safeToken(error?.cause?.code),
+    upstreamStatus: Number.isInteger(error?.upstreamStatus) ? error.upstreamStatus : null,
+    contentType: typeof error?.contentType === 'string' ? error.contentType : null,
+  }));
+}
+
 export function buildEncarUrl(query = '', limit = 24) {
   // Prevent user text from becoming a facet expression. Spaces remain keyword text.
   const term = String(query).normalize('NFKC').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -43,7 +71,7 @@ export function normalizeEncarCar(car, collectedAt = new Date().toISOString()) {
 }
 
 export function parseEncarResponse(payload, collectedAt) {
-  if (!payload || !Array.isArray(payload.SearchResults) || !Number.isFinite(Number(payload.Count))) throw new Error('엔카 검색 응답 형식이 변경됐어요.');
+  if (!payload || !Array.isArray(payload.SearchResults) || !Number.isFinite(Number(payload.Count))) throw Object.assign(new Error('엔카 검색 응답 형식이 변경됐어요.'), {stage:'schema'});
   const unique = new Map();
   for (const car of payload.SearchResults) {
     const item = normalizeEncarCar(car, collectedAt);
@@ -55,11 +83,10 @@ export function parseEncarResponse(payload, collectedAt) {
 async function searchEncar({ query, limit, signal }) {
   const timeout = AbortSignal.timeout(9000);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  const response = await fetch(buildEncarUrl(query, limit), {
+  const response = await fetchCar(buildEncarUrl(query, limit), {
     headers: { Accept: 'application/json' }, signal: combined, redirect: 'error',
   });
-  if (!response.ok) throw new Error(`엔카 검색에 연결하지 못했어요 (HTTP ${response.status}).`);
-  const payload = await response.json();
+  const payload = await carJson(response);
   const {items,total} = parseEncarResponse(payload, new Date().toISOString());
   return { items, provider: { source: 'encar', status: 'ok', count: items.length, total,
     message: '엔카 공개 검색 결과예요. 일부 결과를 표시하며 리스·렌트는 제외해요. 판매 상태와 최신 가격은 원문에서 확인해 주세요.' } };
@@ -111,12 +138,12 @@ export function parseKbListings(html, query='', limit=24, collectedAt=new Date()
 async function searchKb({query,limit,signal}) {
   const timeout=AbortSignal.timeout(9000);
   const combined=signal?AbortSignal.any([signal,timeout]):timeout;
-  const read=async url=>{const response=await fetch(url,{headers:{Accept:'text/html,application/json'},signal:combined,redirect:'error'});if(!response.ok)throw Error(`KB HTTP ${response.status}`);return response;};
+  const read=async url=>{const response=await fetchCar(url,{headers:{Accept:'text/html,application/json'},signal:combined,redirect:'error'});return response;};
   const url=new URL('list.empty',KB_ROOT);
   if(String(query).trim()){
     if(!kbClassCache||kbClassCache.expires<Date.now()){
-      const d=await (await read(new URL('carClass.json',KB_ROOT))).json();
-      if(!Array.isArray(d?.result?.code))throw Error('KB model response changed');
+      const d=await carJson(await read(new URL('carClass.json',KB_ROOT)));
+      if(!Array.isArray(d?.result?.code))throw Object.assign(Error('KB model response changed'),{stage:'schema'});
       kbClassCache={rows:d.result.code,expires:Date.now()+3600000};
     }
     const match=selectKbClasses(kbClassCache.rows,query);
@@ -127,7 +154,7 @@ async function searchKb({query,limit,signal}) {
   url.searchParams.set('page','1');
   const html=await (await read(url)).text();
   // Do not turn an access challenge or changed document into a successful empty search.
-  if(!html.includes('data-ga4')&&!html.includes('검색 결과')&&!html.includes('검색결과'))throw Error('KB listing response changed');
+  if(!html.includes('data-ga4')&&!html.includes('검색 결과')&&!html.includes('검색결과'))throw Object.assign(Error('KB listing response changed'),{stage:'schema'});
   const items=parseKbListings(html,query,limit);
   const makerNames=[...new Set((kbClassCache?.rows||[]).map(row=>row.makerName).filter(Boolean))].sort((a,b)=>b.length-a.length);
   for(const item of items)item.brand=makerNames.find(name=>item.title.startsWith(name+' '))||null;
@@ -144,7 +171,7 @@ export function buildKcarRequest(query='', limit=24) {
 }
 
 export function parseKcarResponse(payload,collectedAt=new Date().toISOString()) {
-  if(!payload?.data||!Array.isArray(payload.data.rows)||!Number.isFinite(Number(payload.data.totalCnt)))throw Error('K Car response changed');
+  if(!payload?.data||!Array.isArray(payload.data.rows)||!Number.isFinite(Number(payload.data.totalCnt)))throw Object.assign(Error('K Car response changed'),{stage:'schema'});
   const items=new Map();
   for(const row of payload.data.rows){
     if(!/^EC\d+$/.test(String(row.carCd))||row.rentRegYn==='Y')continue;
@@ -164,17 +191,17 @@ export function parseKcarResponse(payload,collectedAt=new Date().toISOString()) 
 async function searchKcar({query,limit,signal}) {
   const timeout=AbortSignal.timeout(9000);
   const combined=signal?AbortSignal.any([signal,timeout]):timeout;
-  const response=await fetch('https://api.kcar.com/bc/search/list/drct',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(buildKcarRequest(query,limit)),signal:combined,redirect:'error'});
-  if(!response.ok)throw Error(`K Car HTTP ${response.status}`);
-  const {items,total}=parseKcarResponse(await response.json());
+  const response=await fetchCar('https://api.kcar.com/bc/search/list/drct',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(buildKcarRequest(query,limit)),signal:combined,redirect:'error'});
+  const {items,total}=parseKcarResponse(await carJson(response));
   return {items,provider:{source:'kcar',status:'ok',count:items.length,total,message:'K Car 공개 직영차 검색 결과 일부예요. 판매 상태와 최신 가격은 원문에서 확인해 주세요.'}};
 }
 
 export async function searchCars({ query = '', source = 'all', limit = 24, signal } = {}) {
   const selected = source === 'all' ? CAR_SOURCES : CAR_SOURCES.filter(s => s === source);
   const results = await Promise.all(selected.map(async provider => {
+    const startedAt = Date.now();
     try { return await ({encar:searchEncar,kb:searchKb,kcar:searchKcar}[provider])({query,limit,signal}); }
-    catch (error) { return {items: [],provider: {source: provider,status: 'error',count: 0,
+    catch (error) { logCarFailure(provider, error, startedAt); return {items: [],provider: {source: provider,status: 'error',count: 0,
       message: error?.name === 'AbortError' || error?.name === 'TimeoutError' ? `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 응답이 지연되고 있어요. 다시 검색해 주세요.` : `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 검색에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.`}}; }
   }));
   return { items: results.flatMap(r => r.items), providers: results.map(r => r.provider) };
