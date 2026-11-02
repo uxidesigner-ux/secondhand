@@ -155,6 +155,7 @@ h2 { font-size: var(--font-subheading); line-height: 1.45; }
 .menu-view .results-toolbar { padding-left: 0; padding-top: 18px; }
 .services-view #browse-screen { padding-top: 32px; }
 .services-view .external { margin-top: 0; }
+.saved-view #browse-screen { padding-block: 24px 32px; }
 
 /* Icon navigation keeps visible targets generous; accessible names remain in markup. */
 .bottom-nav { align-items: center; gap: clamp(24px, 8vw, 80px); padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }

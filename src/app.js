@@ -1,12 +1,12 @@
-import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.3.1';
-import {locateCurrentRegion} from './location-lookup.js?v=1.3.1';
-import {lookupRegionName} from './region-geocoder.js?v=1.3.1';
-import {initRefresh} from './refresh.js?v=1.3.1';
-import {mountCarDetail} from './car-detail.js?v=1.3.1';
+import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.3.2';
+import {locateCurrentRegion} from './location-lookup.js?v=1.3.2';
+import {lookupRegionName} from './region-geocoder.js?v=1.3.2';
+import {initRefresh} from './refresh.js?v=1.3.2';
+import {mountCarDetail} from './car-detail.js?v=1.3.2';
 import {resolveDetailItem} from './detail-route.js';
-import {recoverEncar} from './encar-fallback.js?v=1.3.1';
+import {recoverEncar} from './encar-fallback.js?v=1.3.2';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.3.1';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.3.2';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -136,14 +136,15 @@ window.addEventListener('resize',revealSelectedSource,{passive:true});
 function render(){
  if(!state.coords&&state.sort==='distance')state.sort='recent';
  $('#sort').value=state.sort;
- const home=state.page==='home',isDetail=state.page==='detail',isMenu=state.page==='saved'||state.page==='services';
- $('#detail-header').hidden=!isDetail;$('#detail-screen').hidden=!isDetail;$('#detail-actions').hidden=!isDetail;$('.bottom-nav').hidden=isDetail;$('.footnote').hidden=isDetail;
+ const home=state.page==='home',isDetail=state.page==='detail',isSaved=state.page==='saved',isMenu=isSaved||state.page==='services';
+ $('#detail-header').hidden=!isDetail;$('#detail-screen').hidden=!isDetail;$('#detail-actions').hidden=!isDetail;$('.bottom-nav').hidden=isDetail;$('.footnote').hidden=isDetail||isSaved;
  $('.app').classList.toggle('detail-view',isDetail);
  $('#home-search-note').textContent=REQUIRES_LOGIN_REDIRECT?'실제 검색 결과는 접근 권한이 있는 Vercel 계정으로 로그인 후 볼 수 있어요.':'검색할 때 여러 서비스의 실제 매물을 모아 보여 드려요.';
  $('#home-screen').hidden=!home;$('#home-header').hidden=!home;$('#results-header').hidden=home||isDetail;$('#browse-screen').hidden=home||isDetail;
  $('.app').classList.toggle('results-view',!home&&!isDetail);
  $('.app').classList.toggle('menu-view',isMenu);
  $('.app').classList.toggle('services-view',state.page==='services');
+ $('.app').classList.toggle('saved-view',isSaved);
  const menuTitle=state.page==='saved'?'찜한 매물':'둘러보기';
  $('#menu-page-title').hidden=!isMenu;$('#menu-page-title').textContent=isMenu?menuTitle:'';
  $('#results-header').setAttribute('aria-label',isMenu?menuTitle+' 도구':'검색 도구');
@@ -154,11 +155,12 @@ function render(){
  $('#saved-nav').setAttribute('aria-label',savedCount?`찜한 매물 ${savedCount}개`:'찜한 매물');
  $('#saved-nav').title=savedCount?`찜한 매물 ${savedCount}개`:'찜한 매물';
  if(isDetail){renderDetailPage();syncRoute();return;}
- $('#results-header .results-toolbar').hidden=state.page==='services';
- $('.results-kind-tabs').hidden=state.page==='services';
- $('.filter-row').hidden=state.page==='services';
+ $('#results-header .results-toolbar').hidden=isMenu;
+ $('.results-kind-tabs').hidden=isMenu;
+ $('.filter-row').hidden=isMenu;
  $('.search-banner').hidden=home||isMenu;
- $('#source-tabs').hidden=state.page==='services';
+ $('#source-tabs').hidden=isMenu;
+ $('.results-heading').hidden=isSaved;
  document.title=home?'USED — 찾던 중고, 한곳에':state.page==='saved'?'찜한 매물 — USED':state.page==='services'?'둘러보기 — USED':`${state.query?state.query+' 검색 결과':'검색 결과'} — USED`;
  syncRoute();
  const active=document.activeElement;const focusKey=['save','source','suggest'].find(key=>active?.dataset?.[key]);const focusValue=focusKey?active.dataset[focusKey]:null;const focusIndex=focusKey==='save'?[...document.querySelectorAll('[data-save]')].indexOf(active):0;
@@ -173,15 +175,14 @@ function render(){
  $('#location-label').textContent=locationText||'전국';$('#nearby-label').textContent=locationText||'내 주변';
  $('#nearby-open').classList.toggle('selected',Boolean(locationText));
  for(const id of ['location-open','nearby-open']){const button=$('#'+id);button.title=locationText||'전국';button.setAttribute('aria-label',`지역 설정: ${locationText||'전국'}`);}
- const isSaved=state.page==='saved';
  $('#search-status-title').textContent=state.loading?'여러 서비스에서 매물을 찾고 있어요':state.error?'검색 연결을 확인해 주세요':state.requested?'실제 검색 결과를 모았어요':REQUIRES_LOGIN_REDIRECT?'로그인 후 실제 매물을 찾아요':'검색하면 실제 매물을 찾아요';
  $('#search-status-copy').textContent=state.loading?'접근 가능한 서비스의 공개 매물을 확인하고 있어요.':state.fetchedAt?`${when(state.fetchedAt)} 확인 · 판매 여부는 원문에서 확인해 주세요.`:REQUIRES_LOGIN_REDIRECT?'검색하면 Vercel 로그인이 필요한 보호된 화면으로 이동해요.':'서비스별 연결 상태와 가져온 결과를 함께 보여 드려요.';
- let items=filterListings(data(),options());if(isSaved)items=items.filter(i=>state.saved.has(i.id));
+ const items=isSaved?data().filter(i=>state.saved.has(i.id)).reverse():filterListings(data(),options());
  $('#results-title').textContent=isSaved?'찜해 둔 매물':state.page==='services'?'중고 서비스, 한자리에':state.query?`‘${state.query}’ 검색 결과`:state.kind==='car'?'어떤 차를 찾고 있나요?':'어떤 물건을 찾고 있나요?';
  $('#result-count').textContent=state.page==='services'||state.loading?'':`${items.length}개`;$('.sort-control').hidden=state.page==='services';
  let scope=$('#saved-scope');if(!scope){scope=document.createElement('p');scope.id='saved-scope';scope.className='saved-scope';$('.results-heading').insertAdjacentElement('afterend',scope);}
- scope.hidden=state.page==='services'||(!isSaved&&!state.requested);
- scope.textContent=isSaved?`실제 매물 · ${state.kind==='car'?'중고차':'중고물품'} 기준이에요. 저장 당시 정보이며 판매 여부는 원문에서 다시 확인해 주세요. 서비스·필터는 적용되고 검색어는 적용되지 않아요.`:state.loading?'검색 결과를 가져오는 중이에요…':`가져온 ${state.live.length}개 중 ${items.length}개 표시 · 필터는 가져온 결과에 적용돼요. 정보가 없는 매물은 해당 조건에서 제외돼요.`;
+ scope.hidden=isMenu||!state.requested;
+ scope.textContent=state.loading?'검색 결과를 가져오는 중이에요…':`가져온 ${state.live.length}개 중 ${items.length}개 표시 · 필터는 가져온 결과에 적용돼요. 정보가 없는 매물은 해당 조건에서 제외돼요.`;
  let status=$('#provider-status');if(!status){status=document.createElement('div');status.id='provider-status';status.className='provider-status';status.setAttribute('aria-label','서비스 연결 상태');$('.search-banner').insertAdjacentElement('afterend',status);}
  status.hidden=isSaved||state.page==='services'||!state.providers.length;
  const providerDetailsOpen=status.querySelector('details')?.open;
@@ -197,9 +198,9 @@ function card(i){const dist=state.coords&&Number.isFinite(i.lat)&&Number.isFinit
 function skeleton(){return `<div class="sr-only" role="status">실제 매물을 검색하고 있어요.</div>`+Array.from({length:4},()=>'<div class="skeleton-card" aria-hidden="true"><div class="skeleton-image"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>').join('');}
 function empty(){
  const saved=state.page==='saved',error=!saved?state.error:'';
- const title=saved?'조건에 맞는 찜한 매물이 없어요':!state.requested&&!error?'검색어를 입력해 주세요':error?'검색 결과를 가져오지 못했어요':'조건에 맞는 매물이 없어요';
- const copy=saved?'선택한 종류·서비스·필터를 확인해 주세요.<br>찜은 검색 결과가 바뀌어도 이 기기에 남아 있어요.':error?esc(error):!state.requested?(REQUIRES_LOGIN_REDIRECT?'검색하면 보호된 검색 사이트로 이동해요.<br>이 프로젝트 접근 권한이 있는 Vercel 계정으로 로그인해 주세요.':'상품명이나 차종을 검색하면<br>연결 가능한 서비스의 실제 매물을 모아 보여 드려요.'):`검색어나 필터를 바꿔 보세요.<br>연결된 서비스에서 가져온 결과만 검색해요.`;
- return `<div class="empty"><div class="empty-icon">${icon(saved?'heart':'search')}</div><h3>${title}</h3><p>${copy}</p>${error?'<button class="text-button" id="retry-search">다시 검색하기</button>':saved||data().length?'<button class="text-button" id="reset-results">필터 초기화</button>':''}</div>`;
+ const title=saved?'아직 찜한 매물이 없어요':!state.requested&&!error?'검색어를 입력해 주세요':error?'검색 결과를 가져오지 못했어요':'조건에 맞는 매물이 없어요';
+ const copy=saved?'마음에 드는 매물의 하트를 눌러 모아 보세요.':error?esc(error):!state.requested?(REQUIRES_LOGIN_REDIRECT?'검색하면 보호된 검색 사이트로 이동해요.<br>이 프로젝트 접근 권한이 있는 Vercel 계정으로 로그인해 주세요.':'상품명이나 차종을 검색하면<br>연결 가능한 서비스의 실제 매물을 모아 보여 드려요.'):`검색어나 필터를 바꿔 보세요.<br>연결된 서비스에서 가져온 결과만 검색해요.`;
+ return `<div class="empty"><div class="empty-icon">${icon(saved?'heart':'search')}</div><h3>${title}</h3><p>${copy}</p>${error?'<button class="text-button" id="retry-search">다시 검색하기</button>':!saved&&data().length?'<button class="text-button" id="reset-results">필터 초기화</button>':''}</div>`;
 }
 function renderExternal(){const browsing=state.page==='services',query=browsing?'':state.query;const keys=browsing?Object.keys(sources):state.source==='all'?sourceKeys():[state.source];$('#external-links').innerHTML=keys.map(k=>{const s=sources[k];return `<a class="service-link" href="${esc(s.url(query))}" target="_blank" rel="noopener noreferrer"><span class="service-letter" style="color:${s.color};background:${s.color}15">${s.letter}</span><span><strong>${s.name}</strong><small>${s.keyword&&query?`‘${esc(query)}’ 검색 결과 열기`:['encar','kb','kcar'].includes(k)?'차량 목록 열기':'서비스에서 찾아보기'}</small></span>${icon('arrow')}</a>`;}).join('');$('.external-note').textContent=browsing?'선택한 서비스의 원문 사이트로 이동해요.':state.kind==='car'?'차량 검색어와 필터는 이동한 사이트에서 다시 설정해 주세요. KB차차차는 서비스 홈으로 연결돼요.':'외부 사이트에서 필터를 다시 설정해 주세요. 당근은 서비스 홈으로 연결돼요.';}
 let carDetailCleanup=null,detailMountedKey='',sheetCleanup=null,sheetVersion=0;
