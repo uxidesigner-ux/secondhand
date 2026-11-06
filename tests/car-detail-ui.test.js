@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeCarDetail, fetchCarDetail} from '../src/car-detail.js';
+import {normalizeCarDetail, fetchCarDetail, createCarDetailCache} from '../src/car-detail.js';
+import {createRecoveryGuard} from '../src/recovery-guard.js';
 
 const number = '28882930';
 const sourceUrl = `https://www.kbchachacha.com/public/car/detail.kbc?carSeq=${number}`;
@@ -176,6 +177,7 @@ test('all car detail requests use the same-origin API and exact provider-specifi
   assert.equal(requested.url.searchParams.get('source'),provider.source);assert.equal(requested.url.searchParams.get('id'),provider.number);
   assert.deepEqual([...requested.url.searchParams.keys()],['source','id']);
   assert.equal(requested.options.credentials,'same-origin');assert.equal(requested.options.redirect,'error');
+  assert.equal(requested.options.cache,undefined,'allow successful API responses to use CDN caching');
   assert.equal(requested.options.signal,controller.signal);assert.equal(result.source,provider.source);assert.equal(recoveryCalls,0);
  }
 });
@@ -241,4 +243,150 @@ test('cancelled detail requests never start recovery or publish late recovered d
    fetchImpl:async()=>Response.json(unavailable(provider),{status:503}),
    fetchEncarDetail:async()=>{after.abort();return providerDetail(provider);},
  }),error=>error.name==='AbortError');
+});
+
+test('reopening a successful detail uses a sanitized cache copy until its ten-minute expiry',async()=>{
+ let now=0,calls=0;
+ const cache=createCarDetailCache({now:()=>now});
+ const request={item,origin:'https://used.example',cache,
+   fetchImpl:async()=>{calls++;return Response.json({detail:detail()});}};
+ const first=await fetchCarDetail(request);
+ first.title='changed by caller';first.specs[0].value='changed by caller';
+ now=599999;
+ const hit=await fetchCarDetail(request);
+ assert.equal(calls,1);assert.equal(hit.title,detail().title);assert.equal(hit.specs[0].value,'70,346km');
+ now=600000;
+ await fetchCarDetail(request);
+ assert.equal(calls,2,'expiry is not extended by reading the cached detail');
+});
+
+test('detail cache evicts the least recently opened vehicle and bounds its default size',async()=>{
+ let calls=0;
+ const cache=createCarDetailCache({maxEntries:2});
+ const variants=Array.from({length:13},(_,index)=>{
+   const id=String(28882930+index);
+   return {id:`kb-${id}`,source:'kb',kind:'car',url:`https://www.kbchachacha.com/public/car/detail.kbc?carSeq=${id}`};
+ });
+ const fetchImpl=async url=>{
+   calls++;const id=url.searchParams.get('id');
+   return Response.json({detail:detail({id:`kb-${id}`,sourceUrl:`https://www.kbchachacha.com/public/car/detail.kbc?carSeq=${id}`,photos:[]})});
+ };
+ const open=(selected,selectedCache=cache)=>fetchCarDetail({item:selected,origin:'https://used.example',cache:selectedCache,fetchImpl});
+ await open(variants[0]);await open(variants[1]);await open(variants[0]);await open(variants[2]);
+ assert.equal(calls,3);
+ await open(variants[0]);assert.equal(calls,3,'recently reopened vehicle stays in cache');
+ await open(variants[1]);assert.equal(calls,4,'least recently opened vehicle was evicted');
+ const defaultCache=createCarDetailCache();calls=0;
+ for(const selected of variants)await open(selected,defaultCache);
+ assert.equal(calls,13);
+ await open(variants[0],defaultCache);assert.equal(calls,14,'default cache retains at most twelve vehicles');
+});
+
+test('cache hits are checked against the selected exact vehicle and scoped to the API origin',async()=>{
+ let calls=0;
+ const keys=[];
+ const wrong=detail({id:'kb-99999999',sourceUrl:sourceUrl.replace(number,'99999999')});
+ const fakeCache={get:key=>{keys.push(key);return wrong;},set:()=>{}};
+ const fetchImpl=async()=>{calls++;return Response.json({detail:detail()});};
+ const result=await fetchCarDetail({item,origin:'https://used.example',cache:fakeCache,fetchImpl});
+ assert.equal(result.id,item.id);assert.equal(calls,1,'mismatched cache entry must not be shown');
+ assert.equal(keys[0],`https://used.example/api/detail?source=kb&id=${number}`);
+ const cache=createCarDetailCache();calls=0;
+ for(const origin of ['https://used.example','https://preview.example','https://used.example']){
+   await fetchCarDetail({item,origin,cache,fetchImpl});
+ }
+ assert.equal(calls,2,'different API origins cannot share a vehicle response');
+});
+
+test('custom fetch implementations do not share production detail cache by default',async()=>{
+ let calls=0;
+ const fetchImpl=async()=>{calls++;return Response.json({detail:detail()});};
+ for(let i=0;i<2;i++)await fetchCarDetail({item,origin:'https://used.example',fetchImpl});
+ assert.equal(calls,2);
+});
+
+test('rejected, malformed and cancelled detail requests are never cached',async()=>{
+ const rejected=[
+   ()=>Response.json({error:'busy',code:'API_BUSY'},{status:503}),
+   ()=>Response.json({detail:detail({id:'kb-99999999'})}),
+   ()=>{throw new TypeError('network unavailable');},
+ ];
+ for(const firstResponse of rejected){
+   let calls=0;const cache=createCarDetailCache();
+   const fetchImpl=async()=>{calls++;return calls===1?firstResponse():Response.json({detail:detail()});};
+   const request={item,origin:'https://used.example',cache,fetchImpl};
+   await assert.rejects(fetchCarDetail(request));await fetchCarDetail(request);await fetchCarDetail(request);
+   assert.equal(calls,2);
+ }
+ let calls=0;const controller=new AbortController(),cache=createCarDetailCache();
+ const fetchImpl=async()=>{calls++;if(calls===1)controller.abort();return Response.json({detail:detail()});};
+ const request={item,origin:'https://used.example',cache,fetchImpl};
+ await assert.rejects(fetchCarDetail({...request,signal:controller.signal}),error=>error.name==='AbortError');
+ await fetchCarDetail(request);assert.equal(calls,2,'cancelled network result did not populate the cache');
+ await assert.rejects(fetchCarDetail({...request,signal:controller.signal}),error=>error.name==='AbortError');
+ assert.equal(calls,2,'cancelled navigation must not even return an existing cached entry');
+});
+
+test('API cost guards never start Encar recovery and explain a temporary limit without login',async()=>{
+ const provider=extraProviders[0];let recoveryCalls=0;
+ for(const code of ['API_DISABLED','API_BUSY','API_RATE_LIMIT','PROVIDER_BUSY']){
+   for(const status of [403,429,503]){
+     await assert.rejects(fetchCarDetail({item:selectedCar(provider),origin:'https://used.example',
+       fetchImpl:async()=>Response.json({...unavailable(provider),code},{status}),
+       fetchEncarDetail:async()=>{recoveryCalls++;return providerDetail(provider);},
+     }),error=>error.code===code&&error.message.includes('잠시 후')&&!error.message.includes('로그인'));
+   }
+ }
+ assert.equal(recoveryCalls,0);
+});
+
+test('only an exact source-bound 503 provider cooldown permits independent Encar detail recovery',async()=>{
+ const provider=extraProviders[0];let recoveryCalls=0;
+ const valid={...unavailable(provider),code:'PROVIDER_COOLDOWN'};
+ const fetchEncarDetail=async()=>{recoveryCalls++;return providerDetail(provider);};
+ const result=await fetchCarDetail({item:selectedCar(provider),origin:'https://used.example',
+   fetchImpl:async()=>Response.json(valid,{status:503}),fetchEncarDetail});
+ assert.equal(result.id,`encar-${provider.number}`);assert.equal(recoveryCalls,1);
+ for(const status of [401,403,429,502])await assert.rejects(fetchCarDetail({item:selectedCar(provider),origin:'https://used.example',
+   fetchImpl:async()=>Response.json(valid,{status}),fetchEncarDetail}));
+ for(const body of [{code:'PROVIDER_COOLDOWN'},{...valid,source:'kb'},{...valid,id:'41942592'}])await assert.rejects(fetchCarDetail({item:selectedCar(provider),origin:'https://used.example',
+   fetchImpl:async()=>Response.json(body,{status:503}),fetchEncarDetail}));
+ assert.equal(recoveryCalls,1);
+});
+
+test('browser detail failures and malformed recovery enter a separate five-minute cooldown',async()=>{
+ const provider=extraProviders[0];
+ for(const bad of [async()=>{throw Error('blocked');},async()=>({...providerDetail(provider),id:'encar-41942592'})]){
+   let now=0,calls=0;
+   const recoveryGuard=createRecoveryGuard({now:()=>now});
+   const request={item:selectedCar(provider),origin:'https://used.example',recoveryGuard,
+     fetchImpl:async()=>Response.json({...unavailable(provider),code:'PROVIDER_COOLDOWN'},{status:503}),
+     fetchEncarDetail:async()=>{calls++;return calls===1?bad():providerDetail(provider);}};
+   await assert.rejects(fetchCarDetail(request),error=>['DETAIL_UNAVAILABLE','DETAIL_FORMAT'].includes(error.code));
+   now=299999;await assert.rejects(fetchCarDetail(request),error=>error.code==='DETAIL_RETRY_LATER');assert.equal(calls,1);
+   now=300000;assert.equal((await fetchCarDetail(request)).id,`encar-${provider.number}`);assert.equal(calls,2);
+ }
+});
+
+test('aborted browser recovery releases its guard without starting a failure cooldown',async()=>{
+ const provider=extraProviders[0],recoveryGuard=createRecoveryGuard(),controller=new AbortController();let calls=0;
+ const request={item:selectedCar(provider),origin:'https://used.example',recoveryGuard,
+   fetchImpl:async()=>Response.json(unavailable(provider),{status:503}),
+   fetchEncarDetail:async()=>{calls++;if(calls===1)controller.abort();return providerDetail(provider);}};
+ await assert.rejects(fetchCarDetail({...request,signal:controller.signal}),error=>error.name==='AbortError');
+ assert.equal((await fetchCarDetail(request)).id,`encar-${provider.number}`);assert.equal(calls,2);
+ let aborted=true;
+ const adapterAbort={...request,fetchEncarDetail:async()=>{if(aborted){aborted=false;throw new DOMException('canceled','AbortError');}return providerDetail(provider);}};
+ await assert.rejects(fetchCarDetail(adapterAbort),error=>error.name==='AbortError');
+ assert.equal((await fetchCarDetail(adapterAbort)).id,`encar-${provider.number}`);
+});
+
+test('Encar fallback errors do not populate the detail cache',async()=>{
+ const provider=extraProviders[0],cache=createCarDetailCache();let calls=0,recoveryCalls=0;
+ const request={item:selectedCar(provider),origin:'https://used.example',cache,
+   fetchImpl:async()=>{calls++;return Response.json(unavailable(provider),{status:503});},
+   fetchEncarDetail:async()=>{recoveryCalls++;throw new Error('upstream unavailable');},
+ };
+ for(let i=0;i<2;i++)await assert.rejects(fetchCarDetail(request),error=>error.code==='DETAIL_UNAVAILABLE');
+ assert.equal(calls,2);assert.equal(recoveryCalls,2);
 });

@@ -202,13 +202,14 @@ async function searchKcar({query,limit,signal}) {
   return {items,provider:{source:'kcar',status:'ok',count:items.length,total,message:'K Car 공개 직영차 검색 결과 일부예요. 판매 상태와 최신 가격은 원문에서 확인해 주세요.'}};
 }
 
-export async function searchCars({ query = '', source = 'all', limit = 24, signal } = {}) {
+export async function searchCars({ query = '', source = 'all', limit = 24, signal, providerGuard } = {}) {
   const selected = source === 'all' ? CAR_SOURCES : CAR_SOURCES.filter(s => s === source);
   const results = await Promise.all(selected.map(async provider => {
     const startedAt = Date.now();
-    try { return await ({encar:searchEncar,kb:searchKb,kcar:searchKcar}[provider])({query,limit,signal}); }
-    catch (error) { logCarFailure(provider, error, startedAt); const restricted = provider === 'encar' && [403,407,429].includes(error?.upstreamStatus); return {items: [],provider: {source: provider,status: restricted ? 'unavailable' : 'error',count: 0,
-      message: restricted ? '엔카의 서버 조회가 제한되어 있어요. 원문 서비스에서 확인해 주세요.' : error?.name === 'AbortError' || error?.name === 'TimeoutError' ? `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 응답이 지연되고 있어요. 다시 검색해 주세요.` : `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 검색에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.`}}; }
+    const load=()=>({encar:searchEncar,kb:searchKb,kcar:searchKcar}[provider])({query,limit,signal});
+    try { return await (providerGuard?providerGuard.run(provider,load):load()); }
+    catch (error) { logCarFailure(provider, error, startedAt); const guarded=['PROVIDER_COOLDOWN','PROVIDER_BUSY'].includes(error?.code);const restricted = guarded||[403,407,429].includes(error?.upstreamStatus); return {items: [],provider: {source: provider,status: restricted ? 'unavailable' : 'error',count: 0,...(guarded?{code:error.code,retryAfter:error.retryAfter}:{}),
+      message: guarded?error.message:restricted ? `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])}의 서버 조회가 제한되어 있어요. 원문 서비스에서 확인해 주세요.` : error?.name === 'AbortError' || error?.name === 'TimeoutError' ? `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 응답이 지연되고 있어요. 다시 검색해 주세요.` : `${({encar:'엔카',kb:'KB차차차',kcar:'K Car'}[provider])} 검색에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.`}}; }
   }));
   return { items: results.flatMap(r => r.items), providers: results.map(r => r.provider) };
 }

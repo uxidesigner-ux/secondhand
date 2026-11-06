@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {recoverEncar} from '../src/encar-fallback.js';
+import {createRecoveryGuard} from '../src/recovery-guard.js';
 
 const listing = (changes = {}) => ({
   id: 'encar-123', title: '현대 그랜저 IG', price: 10000000,
@@ -26,6 +27,7 @@ test('protected failures, throttling, other modes and malformed payloads never r
     {payload: payload({providers: [null]})}, {payload: payload({providers: [{source: 'encar', status: 'bad'}]})},
     {payload: payload({query: '다른 검색'})}, {payload: payload({kind: 'goods'})},
     {payload: payload({providers: [{source: 'encar', status: 'error'}, {source: 'encar', status: 'error'}]})},
+    {payload:payload({providers:[{source:'encar',status:'unavailable',code:'PROVIDER_BUSY',count:0}]})},
   ];
   for (const changes of cases) {
     const request = options({...changes, searchEncar});
@@ -127,4 +129,32 @@ test('cancelled requests never publish recovery results or turn cancellation int
     }})), error => error === reason);
   }
   await assert.rejects(recoverEncar(options({searchEncar: async () => { throw reason; }})), error => error === reason);
+});
+
+test('server cooldown may recover through public CORS, but browser failures wait five minutes', async () => {
+  let time=0,calls=0;
+  const recoveryGuard=createRecoveryGuard({now:()=>time});
+  const original=payload({providers:[{source:'encar',status:'unavailable',code:'PROVIDER_COOLDOWN',count:0}]});
+  const searchEncar=async()=>{calls++;throw new TypeError('network');};
+  await recoverEncar(options({payload:original,searchEncar,recoveryGuard}));
+  await recoverEncar(options({payload:original,searchEncar,recoveryGuard}));
+  assert.equal(calls,1);
+  time=300_000;
+  const result=await recoverEncar(options({payload:original,recoveryGuard,searchEncar:async()=>{calls++;return successful([listing()]);}}));
+  assert.equal(calls,2);assert.equal(result.providers[0].status,'ok');
+  const blocked=await recoverEncar(options({payload:original,status:429,recoveryGuard,searchEncar}));
+  assert.equal(blocked,original);assert.equal(calls,2);
+});
+
+test('browser recovery guard bounds concurrent calls and releases without cooldown on cancellation', async () => {
+  let release,calls=0;
+  const recoveryGuard=createRecoveryGuard();
+  const searchEncar=()=>{calls++;return new Promise(resolve=>{release=resolve;});};
+  const first=recoverEncar(options({searchEncar,recoveryGuard}));
+  const second=options({searchEncar,recoveryGuard});
+  assert.equal(await recoverEncar(second),second.payload);assert.equal(calls,1);
+  release(successful([listing()]));await first;
+  await assert.rejects(recoverEncar(options({recoveryGuard,searchEncar:async()=>{throw new DOMException('cancel','AbortError');}})),{name:'AbortError'});
+  const next=await recoverEncar(options({recoveryGuard,searchEncar:async()=>successful([listing()])}));
+  assert.equal(next.providers[0].status,'ok');
 });

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createSearchHandler} from '../server/handler.mjs';
+import {createCostGuard} from '../server/cost-guard.mjs';
 const item={id:'actual-1',title:'아이폰 15',price:790000,kind:'goods',source:'daangn',sourceName:'당근',category:'digital',condition:'used',status:'selling',methods:['direct'],region:'서울',url:'https://www.daangn.com/kr/buy-sell/test-item/'};
 const retired={...item,id:'demo-01',demo:true};
 const request=(qs,method='GET')=>new Request('https://example.test/api/search?'+qs,{method});
@@ -15,4 +16,40 @@ test('protected search links keep fixed host and escape query values without byp
  assert.equal(url.searchParams.get('q'),'아이폰&x=1');
  assert.equal(url.searchParams.get('x'),null);
  assert.equal(url.searchParams.has('_vercel_share'),false);
+});
+
+test('unknown and duplicate search parameters cannot create unbounded cache variants',async()=>{
+ let calls=0;const handler=createSearchHandler({searchGoods:async()=>{calls++;}});
+ for(const qs of ['q=x&nonce=1','q=x&q=y','q=x&kind=goods&kind=car','q=x&source=all&source=kb','q=x%00y'])assert.equal((await handler(request(qs))).status,400);
+ assert.equal(calls,0);
+});
+
+test('search dispatch stays inside selected category and source, including all within a category',async()=>{
+ const calls=[];
+ const provider=kind=>async ({query,source,signal,providerGuard})=>{assert.ok(signal instanceof AbortSignal);assert.equal(typeof providerGuard.run,'function');calls.push([kind,query,source]);return {items:[],providers:[{source:source==='all'?(kind==='car'?'kb':'daangn'):source,status:'ok',count:0}]};};
+ const handler=createSearchHandler({searchCars:provider('car'),searchGoods:provider('goods')});
+ for(const [kind,source] of [['car','all'],['car','kb'],['goods','all'],['goods','bunjang']])assert.equal((await handler(request(`q=keyword&kind=${kind}&source=${source}`))).status,200);
+ for(const qs of ['q=keyword&kind=car&source=daangn','q=keyword&kind=goods&source=encar'])assert.equal((await handler(request(qs))).status,400);
+ assert.deepEqual(calls,[['car','keyword','all'],['car','keyword','kb'],['goods','keyword','all'],['goods','keyword','bunjang']]);
+});
+
+test('search normalization and parameter order share cache while source boundaries remain distinct',async()=>{
+ let calls=0;const handler=createSearchHandler({searchGoods:async ({query})=>{calls++;assert.equal(query,'아이폰 15');return {items:[item],providers:[{source:'daangn',status:'ok',count:1}]};}});
+ const first=await handler(request('q='+encodeURIComponent('  아이폰   １５ ')));
+ assert.match(first.headers.get('cache-control'),/s-maxage=180/);
+ const second=await handler(request('source=all&kind=goods&q='+encodeURIComponent('아이폰 15')));
+ assert.deepEqual(await second.json(),await first.json());assert.equal(calls,1);
+ await handler(request('source=daangn&q='+encodeURIComponent('아이폰 15')));assert.equal(calls,2);
+});
+
+test('API shedding and disabled responses never provide a browser-recovery contract',async()=>{
+ let calls=0;const get=async()=>{calls++;return {items:[],providers:[{source:'encar',status:'ok',count:0}]};};
+ const handler=createSearchHandler({searchCars:get,guard:createCostGuard({requestsPerWindow:1,enabled:()=>true})});
+ assert.equal((await handler(request('q=BMW&kind=car'))).status,200);
+ const limited=await handler(request('q=Audi&kind=car'));
+ assert.equal(limited.status,429);assert.ok(Number(limited.headers.get('retry-after'))>0);assert.equal(limited.headers.get('cache-control'),'no-store');
+ const body=await limited.json();assert.equal(body.code,'API_RATE_LIMIT');assert.equal(body.providers,undefined);assert.equal(body.items,undefined);
+ const disabled=createSearchHandler({searchCars:get,guard:createCostGuard({enabled:()=>false})});
+ const stopped=await disabled(request('q=BMW&kind=car'));
+ assert.equal(stopped.status,503);assert.equal((await stopped.json()).code,'API_DISABLED');assert.equal(calls,1);
 });

@@ -4,8 +4,10 @@
   "apiProjectId": "prj_0Q184QiP8R7uAhrWcBDGrHbk8lmL",
   "teamId": "team_Kt8Z1AHvVqYbTTAXft7QmhqF",
   "apiUrl": "https://used-search-api.vercel.app/api/search",
-  "access": "vercel-authentication-required",
-  "protectionDeploymentType": "all",
-  "publicAccessApproved": false,
-  "legacyFrontend": "https://uxidesigner-ux.github.io/secondhand/"
+  "access": "public-production",
+  "protectionDeploymentType": "prod_deployment_urls_and_all_previews",
+  "publicAccessApproved": true,
+  "legacyFrontend": "https://uxidesigner-ux.github.io/secondhand/",
+  "hostingPlan": "hobby",
+  "paidServicesAdded": false
 }

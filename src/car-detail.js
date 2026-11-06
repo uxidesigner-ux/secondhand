@@ -1,4 +1,5 @@
 import {carDetailIdentity} from './detail-route.js';
+import {createRecoveryGuard} from './recovery-guard.js';
 
 /** Shared car detail presentation. All network URLs are fixed or validated. */
 const PLACEHOLDER = './assets/product-placeholder.svg';
@@ -60,38 +61,83 @@ export function normalizeCarDetail(raw, expectedItem) {
 }
 
 const browserEncarDetail = async options => {
-  const {fetchEncarDetailInBrowser} = await import('./providers/encar-detail.js?v=1.5.0');
+  const {fetchEncarDetailInBrowser} = await import('./providers/encar-detail.js?v=1.6.0');
   return fetchEncarDetailInBrowser(options);
 };
 const detailError = (code, message) => Object.assign(new Error(message), {code});
 const checkAborted = signal => { if (signal?.aborted) throw new DOMException('상세정보 조회가 취소됐어요.', 'AbortError'); };
 
-/** Load one exact car through the protected same-origin API. Browser Encar
+/** A small, per-tab cache avoids repeat API calls when reopening a vehicle.
+ * It is deliberately not persistent storage or an in-flight request pool:
+ * leaving one detail page must never cancel another page's request. */
+export function createCarDetailCache({maxEntries = 12, ttlMs = 600000, now = Date.now} = {}) {
+  const entries = new Map();
+  const capacity = Number.isSafeInteger(maxEntries) && maxEntries > 0 ? Math.min(maxEntries, 20) : 12;
+  const lifetime = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 600000) : 600000;
+  return {
+    get(key) {
+      const entry = entries.get(key);
+      if (!entry) return null;
+      entries.delete(key);
+      if (entry.expiresAt <= now()) return null;
+      entries.set(key, entry);
+      return entry.detail;
+    },
+    set(key, detail) {
+      entries.delete(key);
+      entries.set(key, {detail, expiresAt:now() + lifetime});
+      while (entries.size > capacity) entries.delete(entries.keys().next().value);
+    },
+  };
+}
+const sharedCarDetailCache = createCarDetailCache();
+const sharedCarDetailRecoveryGuard = createRecoveryGuard();
+
+/** Load one exact car through the same-origin API. Browser Encar
  * recovery requires the API's explicit provider-failure contract, never an
  * authentication error, rate-limit response, HTML page or unknown JSON. */
 export async function fetchCarDetail({item, signal, origin = globalThis.location?.origin,
-  fetchImpl = globalThis.fetch, fetchEncarDetail = browserEncarDetail} = {}) {
+  fetchImpl = globalThis.fetch, fetchEncarDetail = browserEncarDetail,
+  cache = fetchImpl === globalThis.fetch ? sharedCarDetailCache : null,
+  recoveryGuard = fetchImpl === globalThis.fetch && fetchEncarDetail === browserEncarDetail
+    ? sharedCarDetailRecoveryGuard : createRecoveryGuard()} = {}) {
   const expected = carDetailIdentity(item);
   if (!expected) throw detailError('DETAIL_ID', '올바른 차량을 선택해 주세요.');
   checkAborted(signal);
   const url = new URL('/api/detail', origin);
   url.searchParams.set('source', expected.source);url.searchParams.set('id', expected.number);
-  const response = await fetchImpl(url, {signal, cache:'no-store', credentials:'same-origin', redirect:'error', headers:{Accept:'application/json'}});
+  const cached = normalizeCarDetail(cache?.get(url.href), item);
+  if (cached) return cached;
+  const response = await fetchImpl(url, {signal, credentials:'same-origin', redirect:'error', headers:{Accept:'application/json'}});
   const isJson = /^application\/json(?:\s*;|$)/i.test(response.headers?.get('content-type') || '');
   const payload = isJson ? await response.json().catch(() => null) : null;
   checkAborted(signal);
   let raw = payload?.detail;
   if (!response.ok) {
-    const recoverable = expected.source === 'encar' && [502,503].includes(response.status)
-      && payload?.code === 'DETAIL_UPSTREAM_UNAVAILABLE' && payload.source === expected.source && payload.id === expected.number;
+    if (['API_DISABLED','API_BUSY','API_RATE_LIMIT','PROVIDER_BUSY'].includes(payload?.code)) {
+      throw detailError(payload.code, '지금은 상세정보 조회가 잠시 제한되어 있어요. 잠시 후 다시 시도하거나 아래 원문 버튼으로 확인해 주세요.');
+    }
+    const providerFailure = [502,503].includes(response.status) && payload?.code === 'DETAIL_UPSTREAM_UNAVAILABLE';
+    const serverCooldown = response.status === 503 && payload?.code === 'PROVIDER_COOLDOWN';
+    const recoverable = expected.source === 'encar' && (providerFailure || serverCooldown)
+      && payload.source === expected.source && payload.id === expected.number;
     if (recoverable) {
-      try { raw = await fetchEncarDetail({id:expected.number, signal}); }
-      catch {
+      // Server-origin restrictions need not affect a working public CORS
+      // request from this device. The browser has its own failure cooldown.
+      if (!recoveryGuard.acquire()) throw detailError('DETAIL_RETRY_LATER', '엔카 상세 조회를 잠시 쉬고 있어요. 잠시 후 다시 시도하거나 아래 원문 버튼으로 확인해 주세요.');
+      try {
+        raw = await fetchEncarDetail({id:expected.number, signal});
         checkAborted(signal);
+        if (!normalizeCarDetail(raw, item)) throw detailError('DETAIL_FORMAT', '엔카 차량 상세정보를 확인하지 못했어요. 원문을 확인하거나 다시 시도해 주세요.');
+      } catch (error) {
+        checkAborted(signal);
+        if (error?.name === 'AbortError') throw error;
+        recoveryGuard.failed();
+        if (error?.code === 'DETAIL_FORMAT') throw error;
         throw detailError('DETAIL_UNAVAILABLE', '엔카 상세정보에 연결하지 못했어요. 아래 엔카에서 보기 버튼으로 확인해 주세요.');
-      }
+      } finally { recoveryGuard.release(); }
     } else if ([401,403].includes(response.status)) {
-      throw detailError('DETAIL_AUTH', '로그인이 필요해 상세정보를 가져오지 못했어요. 원문을 확인하거나 로그인 후 다시 시도해 주세요.');
+      throw detailError('DETAIL_AUTH', '상세정보 접근이 일시적으로 제한되어 있어요. 잠시 후 다시 시도하거나 아래 원문 버튼으로 확인해 주세요.');
     } else if (response.status === 429) {
       throw detailError('DETAIL_RATE_LIMIT', '요청이 많아 상세정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요.');
     } else if ([404,410].includes(response.status)) {
@@ -103,6 +149,8 @@ export async function fetchCarDetail({item, signal, origin = globalThis.location
   checkAborted(signal);
   const detail = normalizeCarDetail(raw, item);
   if (!detail) throw detailError('DETAIL_FORMAT', `${expected.sourceName} 차량 상세정보를 확인하지 못했어요. 원문을 확인하거나 다시 시도해 주세요.`);
+  // Store a separate sanitized copy so a caller cannot mutate a later view.
+  cache?.set(url.href, normalizeCarDetail(detail, item));
   return detail;
 }
 

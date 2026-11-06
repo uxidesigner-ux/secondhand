@@ -128,7 +128,7 @@ const requests={
   bunjang:{url:q=>`https://api.bunjang.co.kr/api/search/v8/mw/product/specs/keyword?q=${encodeURIComponent(q)}`,parse:(s,...args)=>parseBunjang(JSON.parse(s),...args)},
   other:{url:q=>`https://www.hellomarket.com/search?q=${encodeURIComponent(q)}`,parse:parseHello},
 };
-export async function searchGoods({query,source='all',limit=24,signal}={}) {
+export async function searchGoods({query,source='all',limit=24,signal,providerGuard}={}) {
   const q=String(query||'').trim().slice(0,100);
   const keys=source==='all'?SOURCES:SOURCES.includes(source)?[source]:[];
   if(!q)return {items:[],providers:keys.map(source=>({source,status:'unavailable',count:0,message:'검색어를 입력해 주세요.'}))};
@@ -136,12 +136,13 @@ export async function searchGoods({query,source='all',limit=24,signal}={}) {
   const results=await Promise.all(keys.map(async source=>{
     const adapter=requests[source];
     try {
-      const text=await fetchText(adapter.url(q),signal);
+      const text=await (providerGuard?providerGuard.run(source,()=>fetchText(adapter.url(q),signal)):fetchText(adapter.url(q),signal));
       const items=adapter.parse(text,new Date().toISOString(),take);
       return {items,provider:{source,status:'ok',count:items.length,message:source==='daangn'?'원문 검색 범위 일부이며 전국 전체 매물이 아니에요.':'공개 검색 결과 일부를 가져왔어요.'}};
     } catch(error) {
-      const unavailable=/UPSTREAM_(401|403|429)/.test(error.message);
-      return {items:[],provider:{source,status:unavailable?'unavailable':'error',count:0,message:unavailable?'서비스에서 자동 조회를 제한하고 있어요.':error.name==='TimeoutError'?'조회 시간이 초과됐어요.':'현재 이 서비스의 검색 결과를 불러오지 못했어요.'}};
+      const guarded=['PROVIDER_COOLDOWN','PROVIDER_BUSY'].includes(error?.code);
+      const unavailable=guarded||/UPSTREAM_(401|403|407|429)/.test(error.message);
+      return {items:[],provider:{source,status:unavailable?'unavailable':'error',count:0,...(guarded?{code:error.code,retryAfter:error.retryAfter}:{}),message:guarded?error.message:unavailable?'서비스에서 자동 조회를 제한하고 있어요.':error.name==='TimeoutError'?'조회 시간이 초과됐어요.':'현재 이 서비스의 검색 결과를 불러오지 못했어요.'}};
     }
   }));
   return {items:results.flatMap(r=>r.items),providers:results.map(r=>r.provider)};

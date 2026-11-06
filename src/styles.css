@@ -157,6 +157,17 @@ h2 { font-size: var(--font-subheading); line-height: 1.45; }
 .services-view .external { margin-top: 0; }
 .saved-view #browse-screen { padding-block: 24px 32px; }
 
+/* Results keep the home-selected search category; all refinements live in the sheet. */
+.results-view:not(.menu-view) #browse-screen { padding-top: 24px; }
+.results-toolbar { padding-left: 0; }
+.results-toolbar .filter-main { max-width: 100%; }
+.filter-location-row { display: flex; align-items: center; gap: 8px; }
+.filter-location-row .location-input { flex: 1; min-width: 0; }
+.filter-location-row .option { flex: 0 0 auto; min-height: 48px; }
+.filter-location .geo-button { margin: 12px 0; }
+.filter-radius { margin-top: 12px; }
+.filter-radius .option { flex: 1 0 64px; }
+
 /* A quiet home centered on choosing a category and starting a search. */
 .home-view .header { border-bottom: 0; }
 .home-view main { max-width: 760px; margin-inline: auto; }

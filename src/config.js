@@ -1,6 +1,7 @@
-// Keep the API behind Vercel Authentication. Never embed bypass/share tokens.
+// Public production entry. Preview deployments remain protected by Vercel.
+// Never embed authentication or bypass tokens.
 export const PROTECTED_SEARCH_URL = 'https://used-search-api.vercel.app/';
-// Public metadata only; visitors continue to the protected application.
+// Lightweight public share metadata, with a redirect to the canonical app.
 export const SERVICE_SHARE_URL = 'https://uxidesigner-ux.github.io/secondhand/share/';
 export const REQUIRES_LOGIN_REDIRECT = typeof location !== 'undefined' && location.hostname === 'uxidesigner-ux.github.io';
 export const SEARCH_API_URL = '/api/search';

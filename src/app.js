@@ -1,14 +1,16 @@
-import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.5.0';
-import {locateCurrentRegion} from './location-lookup.js?v=1.5.0';
-import {lookupRegionName} from './region-geocoder.js?v=1.5.0';
-import {initRefresh} from './refresh.js?v=1.5.0';
-import {shareService} from './share.js?v=1.5.0';
-import {mountCarDetail} from './car-detail.js?v=1.5.0';
+import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.6.0';
+import {locateCurrentRegion} from './location-lookup.js?v=1.6.0';
+import {lookupRegionName} from './region-geocoder.js?v=1.6.0';
+import {initRefresh} from './refresh.js?v=1.6.0';
+import {shareService} from './share.js?v=1.6.0';
+import {mountCarDetail} from './car-detail.js?v=1.6.0';
 import {resolveDetailItem} from './detail-route.js';
 import {createRouteHistory} from './route-history.js';
-import {recoverEncar} from './encar-fallback.js?v=1.5.0';
+import {recoverEncar} from './encar-fallback.js?v=1.6.0';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.5.0';
+import {searchScope,isInSearchScope,normalizedSearchQuery,searchRequestKey} from './search-scope.js';
+import {createSearchCache} from './search-cache.js';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.6.0';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -20,7 +22,8 @@ const money=n=>Number.isFinite(n)?new Intl.NumberFormat('ko-KR').format(n)+'원'
 const when=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'확인 시각 없음';
 const known=(dictionary,key)=>dictionary[key]||'정보 없음';
 const sources={daangn:{name:'당근',letter:'당',color:'#ff7e36',url:()=> 'https://www.daangn.com/kr/',keyword:false},joongna:{name:'중고나라',letter:'중',color:'#10ae83',url:q=>'https://web.joongna.com/search/'+encodeURIComponent(q),keyword:true},bunjang:{name:'번개장터',letter:'번',color:'#f45458',url:q=>'https://m.bunjang.co.kr/search/products?q='+encodeURIComponent(q),keyword:true},other:{name:'헬로마켓',letter:'H',color:'#5785d5',url:q=>'https://www.hellomarket.com/search?q='+encodeURIComponent(q),keyword:true},encar:{name:'엔카',letter:'E',color:'#e53835',url:()=> 'https://car.encar.com/list/car',keyword:false},kb:{name:'KB차차차',letter:'KB',color:'#c99813',url:()=> 'https://www.kbchachacha.com/',keyword:false},kcar:{name:'K Car',letter:'K',color:'#bc1932',url:()=> 'https://www.kcar.com/bc/search',keyword:false}};
-const sourceKeys=()=>state.kind==='car'?['encar','kb','kcar']:['daangn','joongna','bunjang','other'];
+const sourceKeys=()=>searchScope(state.kind).providers;
+const sortLabels={recent:'최신순','price-asc':'낮은 가격순','price-desc':'높은 가격순',distance:'가까운순'};
 const sourceLogos={daangn:'daangn.svg',joongna:'joongna.svg',bunjang:'bunjang.svg',other:'hellomarket.svg',encar:'encar.png',kb:'kb.png',kcar:'kcar.svg'};
 const labels={category:{all:'전체',digital:'디지털·가전',fashion:'패션·잡화',home:'가구·생활',sports:'스포츠·레저',hobby:'취미·도서'},condition:{all:'전체',new:'새 상품', 'like-new':'거의 새것',used:'사용감 있음'},method:{all:'전체',direct:'직거래',shipping:'택배거래'},status:{all:'전체',selling:'판매 중',reserved:'예약 중',sold:'판매 완료'},fuel:{all:'전체',gasoline:'가솔린',diesel:'디젤',hybrid:'하이브리드',electric:'전기',lpg:'LPG'},brand:{all:'전체',현대:'현대',기아:'기아',BMW:'BMW',벤츠:'벤츠',테슬라:'테슬라'}};
 const defaults=()=>({category:'all',minPrice:'',maxPrice:'',condition:'all',method:'all',status:'all',brand:'all',minYear:'',maxMileage:'',fuel:'all'});
@@ -32,7 +35,9 @@ const rejectedSavedIds=new Set(snapshots.filter(item=>!validateListing(item)).ma
 const state={kind:'goods',page:'home',source:'all',query:'',sort:'recent',filters:defaults(),region:'',coords:null,radius:5,locationName:'',saved:new Set([...stored.filter(id=>typeof id==='string'&&!/^demo(?:-|$)/i.test(id)&&!rejectedSavedIds.has(id)),...savedRecords.keys()]),savedRecords,live:[],loading:false,requested:false,error:'',providers:[],fetchedAt:null,partial:false,detailId:'',detailItem:null};
 let draft={},toastTimer,requestController=null,requestVersion=0;
 let routeDepth=0,routeScroll=0,routeVersion=0,restoringScroll=false,liveKey='';
-const searchKey=()=>JSON.stringify([state.kind,state.source,state.query]);
+const searchKey=()=>searchRequestKey(state);
+const searchCache=createSearchCache();
+let activeSearchKey='';
 history.scrollRestoration='manual';
 function syncQueries(){for(const id of ['query','home-query'])$('#'+id).value=state.query;}
 function routeData(){return {usedRoute:true,depth:routeDepth,page:state.page,kind:state.kind,source:state.source,query:state.query,filters:{...state.filters},sort:state.sort,location:locationSnapshot(state),scrollY:routeScroll,...(state.page==='detail'?{detailId:state.detailId,detailItem:validateListing(state.detailItem)?state.detailItem:null}:{})};}
@@ -61,8 +66,10 @@ function navigate(page,{replace=false}={}){
  requestAnimationFrame(()=>{if(version===routeVersion)restoringScroll=false;});
 }
 function submitSearch(query,{reset=false}={}){
- const value=query.trim();if(!value){notify('검색어를 입력해 주세요.');return;}
- state.query=value.slice(0,80);if(reset){state.source='all';state.filters=defaults();state.sort='recent';$('#sort').value='recent';}
+ const value=normalizedSearchQuery(query);if(!value){notify('검색어를 입력해 주세요.');return;}
+ state.query=value;
+ if(reset){state.filters=defaults();state.sort='recent';}
+ if(state.page==='search'&&state.loading&&activeSearchKey===searchKey()){syncQueries();return;}
  if(REQUIRES_LOGIN_REDIRECT){state.page='search';searchLive();return;}
  navigate('search',{replace:state.page==='search'});searchLive();
 }
@@ -73,10 +80,10 @@ async function restoreRoute(entry,onRendered){
  routeDepth=entry?.usedRoute&&Number.isInteger(entry.depth)?entry.depth:0;
  const restoreY=entry?.usedRoute?routeHistory.scrollFor(entry):0;routeScroll=restoreY;
  const params=new URLSearchParams(location.search);
- state.kind=entry?.usedRoute?entry.kind:params.get('kind')==='car'?'car':'goods';
- state.query=entry?.usedRoute?entry.query:(params.get('q')||'').slice(0,80);
+ state.kind=searchScope(entry?.usedRoute?entry.kind:params.get('kind')).kind;
+ state.query=normalizedSearchQuery(entry?.usedRoute?entry.query:params.get('q'));
  const view=params.get('view');state.page=entry?.usedRoute?entry.page:['saved','services','detail'].includes(view)?view:state.query||view==='results'?'search':'home';
- const source=entry?.usedRoute?entry.source:params.get('source');state.source=['all',...sourceKeys()].includes(source)?source:'all';
+ const source=entry?.usedRoute?entry.source:params.get('source');state.source=searchScope(state.kind,source).source;
  if(entry?.usedRoute){state.filters={...defaults(),...entry.filters};state.sort=entry.sort||'recent';}
  Object.assign(state,locationFromHistory(entry));
  state.detailId=state.page==='detail'?String(entry?.detailId||params.get('item')||'').slice(0,512):'';
@@ -84,7 +91,7 @@ async function restoreRoute(entry,onRendered){
  if(state.page==='detail'&&REQUIRES_LOGIN_REDIRECT){
   const url=new URL(protectedSearchUrl({query:state.query,kind:state.kind,source:state.source}));url.searchParams.set('view','detail');url.searchParams.set('item',state.detailId);location.assign(url.href);return;
  }
- syncQueries();$('#sort').value=state.sort;render();onRendered?.();
+ syncQueries();render();onRendered?.();
  if(state.page==='search'&&!REQUIRES_LOGIN_REDIRECT&&liveKey!==searchKey())await searchLive();
  if(version!==routeVersion)return;
  window.scrollTo({top:restoreY,behavior:'auto'});routeScroll=restoreY;syncRoute();
@@ -99,50 +106,48 @@ function persist(){try{localStorage.setItem('used:saved',JSON.stringify([...stat
 const data=()=>state.page==='saved'?[...state.savedRecords.values()]:state.live;
 const placeholder='./assets/product-placeholder.svg';
 const options=()=>({...state.filters,kind:state.kind,query:state.page==='saved'?'':state.query,source:state.source,region:state.region,coords:state.coords,radius:state.coords?state.radius:undefined,sort:state.sort});
-function cancelSearch(){requestController?.abort();requestController=null;requestVersion++;state.loading=false;}
-async function searchLive(){
+function cancelSearch(){requestController?.abort();requestController=null;requestVersion++;state.loading=false;activeSearchKey='';}
+async function searchLive({force=false}={}){
+ const key=searchKey();
+ if(state.loading&&activeSearchKey===key)return;
  cancelSearch();
  if(state.page!=='search'){render();return;}
  state.live=[];state.providers=[];state.fetchedAt=null;state.error='';state.partial=false;state.requested=false;
  if(!state.query.trim()){render();return;}
  if(REQUIRES_LOGIN_REDIRECT&&state.query.trim()){location.assign(protectedSearchUrl({query:state.query,kind:state.kind,source:state.source}));return;}
  if(state.query.length>80){state.error='검색어는 80자 이내로 입력해 주세요.';render();return;}
- state.requested=true;state.loading=true;render();
+ const cached=!force&&searchCache.get(key);
+ if(cached){Object.assign(state,{live:cached.items,providers:cached.providers,fetchedAt:cached.fetchedAt,partial:cached.partial,requested:true,loading:false,error:''});liveKey=key;render();return;}
+ state.requested=true;state.loading=true;activeSearchKey=key;render();
  const controller=new AbortController();requestController=controller;const version=requestVersion;
  const timeout=setTimeout(()=>controller.abort(),25000);
  try{
   const url=new URL(SEARCH_API_URL,location.href);url.searchParams.set('q',state.query);url.searchParams.set('kind',state.kind);url.searchParams.set('source',state.source);
-  const response=await fetch(url,{signal:controller.signal,cache:'no-store',headers:{Accept:'application/json'}});
+  const response=await fetch(url,{signal:controller.signal,headers:{Accept:'application/json'}});
   let payload=await response.json().catch(()=>null);
   if(version!==requestVersion)return;
   payload=await recoverEncar({payload,status:response.status,kind:state.kind,source:state.source,query:state.query,signal:controller.signal});
   if(version!==requestVersion)return;
-  if(Array.isArray(payload?.providers))state.providers=payload.providers.filter(p=>p&&Object.hasOwn(sources,p.source)&&['ok','unavailable','error'].includes(p.status));
+  const scope=searchScope(state.kind,state.source);
+  if(Array.isArray(payload?.providers))state.providers=payload.providers.filter(p=>p&&scope.providers.includes(p.source)&&['ok','unavailable','error'].includes(p.status));
   state.fetchedAt=payload?.fetchedAt;state.partial=Boolean(payload?.partial);
   if(!response.ok&&!(response.status===502&&payload?.providers?.some(p=>p.status==='ok')))throw new Error(typeof payload?.error==='string'?payload.error:response.status===429?'검색 요청이 많아요. 잠시 후 다시 시도해 주세요.':`검색 서버에 연결하지 못했어요. (${response.status})`);
   if(!Array.isArray(payload?.items)||!Array.isArray(payload?.providers))throw new Error('검색 응답을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.');
-  state.live=payload.items.filter(validateListing);
+  state.live=payload.items.filter(item=>validateListing(item)&&isInSearchScope(item,scope));
   for(const item of state.live)if(state.saved.has(item.id))state.savedRecords.set(item.id,item);
   persist();
+  if(response.ok){searchCache.put(key,{items:state.live,providers:state.providers,fetchedAt:state.fetchedAt,partial:state.partial});}
   if(state.providers.length&&!state.providers.some(p=>p.status==='ok'))state.error='선택한 서비스에서 매물을 가져오지 못했어요. 연결 상태를 확인하거나 원문 검색을 이용해 주세요.';
  }catch(error){
   if(version!==requestVersion)return;
   state.error=error.name==='AbortError'?'검색 시간이 길어지고 있어요. 다시 검색해 주세요.':error instanceof TypeError?'네트워크 또는 검색 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.':error.message;
- }finally{clearTimeout(timeout);if(version===requestVersion){state.loading=false;requestController=null;liveKey=searchKey();render();}}
+ }finally{clearTimeout(timeout);if(version===requestVersion){state.loading=false;requestController=null;activeSearchKey='';liveKey=key;render();}}
 }
-function filterSummary(){const f=state.filters,v=[];for(const k of state.kind==='car'?['brand','fuel','status']:['category','condition','method','status'])if(f[k]!=='all')v.push(labels[k][f[k]]);if(f.minPrice!==''||f.maxPrice!=='')v.push(`${f.minPrice!==''?money(+f.minPrice):'0원'} ~ ${f.maxPrice!==''?money(+f.maxPrice):'제한 없음'}`);if(state.kind==='car'){if(f.minYear)v.push(`${f.minYear}년부터`);if(f.maxMileage)v.push(`${(+f.maxMileage).toLocaleString()}km 이하`);}return v;}
-function resetFilters(){state.filters=defaults();Object.assign(state,normalizeLocation());state.source='all';state.sort='recent';$('#sort').value='recent';if(state.page!=='saved')searchLive();else render();}
-function revealSelectedSource(){
- const tabs=$('#source-tabs'),selected=tabs?.querySelector('[aria-pressed="true"]');
- if(!selected||!tabs.clientWidth)return;
- const rail=tabs.getBoundingClientRect(),item=selected.getBoundingClientRect();
- if(item.left<rail.left+5)tabs.scrollLeft-=rail.left+5-item.left;
- else if(item.right>rail.right-5)tabs.scrollLeft+=item.right-rail.right+5;
-}
-window.addEventListener('resize',revealSelectedSource,{passive:true});
+function filterSummary(){const f=state.filters,v=[];if(state.source!=='all')v.push(sources[state.source].name);const place=selectedLocationText(state);if(place)v.push(place);if(state.sort!=='recent')v.push(sortLabels[state.sort]);for(const k of state.kind==='car'?['brand','fuel','status']:['category','condition','method','status'])if(f[k]!=='all')v.push(labels[k][f[k]]);if(f.minPrice!==''||f.maxPrice!=='')v.push(`${f.minPrice!==''?money(+f.minPrice):'0원'} ~ ${f.maxPrice!==''?money(+f.maxPrice):'제한 없음'}`);if(state.kind==='car'){if(f.minYear)v.push(`${f.minYear}년부터`);if(f.maxMileage)v.push(`${(+f.maxMileage).toLocaleString()}km 이하`);}return v;}
+function resetFilters(){const changedSource=state.source!=='all';state.filters=defaults();Object.assign(state,normalizeLocation());state.source='all';state.sort='recent';if(changedSource&&state.page==='search')searchLive();else render();}
 function render(){
- if(!state.coords&&state.sort==='distance')state.sort='recent';
- $('#sort').value=state.sort;
+ if(!Object.hasOwn(sortLabels,state.sort)||(!state.coords&&state.sort==='distance'))state.sort='recent';
+
  const home=state.page==='home',isDetail=state.page==='detail',isSaved=state.page==='saved',isMenu=isSaved||state.page==='services';
  $('#detail-header').hidden=!isDetail;$('#detail-screen').hidden=!isDetail;$('#detail-actions').hidden=!isDetail;$('.bottom-nav').hidden=isDetail;$('.footnote').hidden=home||isDetail||isSaved;
  $('.app').classList.toggle('detail-view',isDetail);
@@ -165,10 +170,7 @@ function render(){
  $('#saved-nav').title=savedCount?`찜한 매물 ${savedCount}개`:'찜한 매물';
  if(isDetail){renderDetailPage();syncRoute();return;}
  $('#results-header .results-toolbar').hidden=isMenu;
- $('.results-kind-tabs').hidden=isMenu;
- $('.filter-row').hidden=isMenu;
  $('.search-banner').hidden=home||isMenu;
- $('#source-tabs').hidden=isMenu;
  $('.results-heading').hidden=isSaved;
  document.title=home?'USED — 좋은매물, 한곳에서':state.page==='saved'?'찜한 매물 — USED':state.page==='services'?'둘러보기 — USED':`${state.query?state.query+' 검색 결과':'검색 결과'} — USED`;
  syncRoute();
@@ -178,18 +180,15 @@ function render(){
  $('#query').placeholder=state.kind==='car'?'어떤 차를 찾고 있나요?':'어떤 물건을 찾고 있나요?';
  $('#home-query').placeholder=state.kind==='car'?'찾는 차가 있나요?':'찾는 물건이 있나요?';
  $('#suggestions').innerHTML=(state.kind==='car'?['그랜저','쏘렌토','BMW']:['아이폰','에어팟','카메라']).map(x=>`<button data-suggest="${x}">${x}</button>`).join('');
- $('#source-tabs').innerHTML=[['all','전체'],...sourceKeys().map(k=>[k,k==='other'?'기타':sources[k].name])].map(([key,name])=>`<button data-source="${key}" aria-pressed="${state.source===key}" class="${state.source===key?'active':''}">${name}</button>`).join('');
- revealSelectedSource();
  const summary=filterSummary();$('#filter-summary').textContent=summary.join(' · ')||'필터';$('#filters-open').title=summary.join(' · ')||'필터 설정';$('#filters-open').classList.toggle('selected',!!summary.length);$('#filter-count').hidden=!summary.length;$('#filter-count').textContent=summary.length;
  const locationText=selectedLocationText(state);
- $('#location-label').textContent=locationText||'전국';$('#nearby-label').textContent=locationText||'내 주변';
- $('#nearby-open').classList.toggle('selected',Boolean(locationText));
- for(const id of ['location-open','nearby-open']){const button=$('#'+id);button.title=locationText||'전국';button.setAttribute('aria-label',`지역 설정: ${locationText||'전국'}`);}
- $('#search-status-title').textContent=state.loading?'여러 서비스에서 매물을 찾고 있어요':state.error?'검색 연결을 확인해 주세요':state.requested?'실제 검색 결과를 모았어요':REQUIRES_LOGIN_REDIRECT?'로그인 후 실제 매물을 찾아요':'검색하면 실제 매물을 찾아요';
- $('#search-status-copy').textContent=state.loading?'접근 가능한 서비스의 공개 매물을 확인하고 있어요.':state.fetchedAt?`${when(state.fetchedAt)} 확인 · 판매 여부는 원문에서 확인해 주세요.`:REQUIRES_LOGIN_REDIRECT?'검색하면 Vercel 로그인이 필요한 보호된 화면으로 이동해요.':'서비스별 연결 상태와 가져온 결과를 함께 보여 드려요.';
+ $('#location-label').textContent=locationText||'전국';
+ for(const id of ['location-open']){const button=$('#'+id);button.title=locationText||'전국';button.setAttribute('aria-label',`지역 설정: ${locationText||'전국'}`);}
+ $('#search-status-title').textContent=state.loading?'여러 서비스에서 매물을 찾고 있어요':state.error?'검색 연결을 확인해 주세요':state.requested?'실제 검색 결과를 모았어요':'검색하면 실제 매물을 찾아요';
+ $('#search-status-copy').textContent=state.loading?'접근 가능한 서비스의 공개 매물을 확인하고 있어요.':state.fetchedAt?`${when(state.fetchedAt)} 확인 · 판매 여부는 원문에서 확인해 주세요.`:'선택한 검색 범위의 서비스에서 매물을 찾아요.';
  const items=isSaved?data().filter(i=>state.saved.has(i.id)).reverse():filterListings(data(),options());
  $('#results-title').textContent=isSaved?'찜해 둔 매물':state.page==='services'?'중고 서비스, 한자리에':state.query?`‘${state.query}’ 검색 결과`:state.kind==='car'?'어떤 차를 찾고 있나요?':'어떤 물건을 찾고 있나요?';
- $('#result-count').textContent=state.page==='services'||state.loading?'':`${items.length}개`;$('.sort-control').hidden=state.page==='services';
+ $('#result-count').textContent=state.page==='services'||state.loading?'':`${items.length}개`;
  let scope=$('#saved-scope');if(!scope){scope=document.createElement('p');scope.id='saved-scope';scope.className='saved-scope';$('.results-heading').insertAdjacentElement('afterend',scope);}
  scope.hidden=isMenu||!state.requested;
  scope.textContent=state.loading?'검색 결과를 가져오는 중이에요…':`가져온 ${state.live.length}개 중 ${items.length}개 표시 · 필터는 가져온 결과에 적용돼요. 정보가 없는 매물은 해당 조건에서 제외돼요.`;
@@ -209,7 +208,7 @@ function skeleton(){return `<div class="sr-only" role="status">실제 매물을 
 function empty(){
  const saved=state.page==='saved',error=!saved?state.error:'';
  const title=saved?'아직 찜한 매물이 없어요':!state.requested&&!error?'검색어를 입력해 주세요':error?'검색 결과를 가져오지 못했어요':'조건에 맞는 매물이 없어요';
- const copy=saved?'마음에 드는 매물의 하트를 눌러 모아 보세요.':error?esc(error):!state.requested?(REQUIRES_LOGIN_REDIRECT?'검색하면 보호된 검색 사이트로 이동해요.<br>이 프로젝트 접근 권한이 있는 Vercel 계정으로 로그인해 주세요.':'상품명이나 차종을 검색하면<br>연결 가능한 서비스의 실제 매물을 모아 보여 드려요.'):`검색어나 필터를 바꿔 보세요.<br>연결된 서비스에서 가져온 결과만 검색해요.`;
+ const copy=saved?'마음에 드는 매물의 하트를 눌러 모아 보세요.':error?esc(error):!state.requested?('상품명이나 차종을 검색하면<br>선택한 범위의 실제 매물을 모아 보여 드려요.'):`검색어나 필터를 바꿔 보세요.<br>연결된 서비스에서 가져온 결과만 검색해요.`;
  return `<div class="empty"><div class="empty-icon">${icon(saved?'heart':'search')}</div><h3>${title}</h3><p>${copy}</p>${error?'<button class="text-button" id="retry-search">다시 검색하기</button>':!saved&&data().length?'<button class="text-button" id="reset-results">필터 초기화</button>':''}</div>`;
 }
 function renderExternal(){const browsing=state.page==='services',query=browsing?'':state.query;const keys=browsing?Object.keys(sources):state.source==='all'?sourceKeys():[state.source];$('#external-links').innerHTML=keys.map(k=>{const s=sources[k];return `<a class="service-link" href="${esc(s.url(query))}" target="_blank" rel="noopener noreferrer"><span class="service-letter" style="color:${s.color};background:${s.color}15">${s.letter}</span><span><strong>${s.name}</strong><small>${s.keyword&&query?`‘${esc(query)}’ 검색 결과 열기`:['encar','kb','kcar'].includes(k)?'차량 목록 열기':'서비스에서 찾아보기'}</small></span>${icon('arrow')}</a>`;}).join('');$('.external-note').textContent=browsing?'선택한 서비스의 원문 사이트로 이동해요.':state.kind==='car'?'차량 검색어와 필터는 이동한 사이트에서 다시 설정해 주세요. KB차차차는 서비스 홈으로 연결돼요.':'외부 사이트에서 필터를 다시 설정해 주세요. 당근은 서비스 홈으로 연결돼요.';}
@@ -219,9 +218,61 @@ function clearCarDetail(){carDetailCleanup?.();carDetailCleanup=null;detailMount
 function openSheet(title,body,footer=''){ cleanupSheet();sheetVersion++; $('#sheet-body').onclick=null;$('#sheet-body').scrollTop=0;$('#sheet-title').textContent=title;$('#sheet-body').innerHTML=body;$('#sheet-footer').innerHTML=footer;paintIcons($('#sheet'));$('#sheet').showModal();document.body.style.overflow='hidden';}
 function closeSheet(){cleanupSheet();$('#sheet').close();}
 $('#sheet').addEventListener('close',()=>{if(!$('#sheet').open){cleanupSheet();document.body.style.overflow='';}});$('#sheet-close').onclick=closeSheet;$('#sheet').addEventListener('click',e=>{if(e.target===$('#sheet')){const r=$('#sheet').getBoundingClientRect();if(e.clientY<r.top||e.clientX<r.left||e.clientX>r.right)closeSheet();}});
-function group(key,title){return `<section class="filter-group"><h3>${title}</h3><div class="options">${Object.entries(labels[key]).map(([v,l])=>`<button class="option ${draft[key]===v?'active':''}" data-option="${key}" data-value="${v}" aria-pressed="${draft[key]===v}">${l}</button>`).join('')}</div></section>`;}
+function group(key,title,values=labels[key]){return `<section class="filter-group"><h3>${title}</h3><div class="options">${Object.entries(values).map(([v,l])=>`<button class="option ${draft[key]===v?'active':''}" data-option="${key}" data-value="${v}" aria-pressed="${draft[key]===v}">${l}</button>`).join('')}</div></section>`;}
 function numberField(key,placeholder,unit){return `<div class="input-wrap"><input id="f-${key}" type="number" inputmode="numeric" min="0" step="1" placeholder="${placeholder}" value="${esc(draft[key])}" aria-label="${placeholder}"><span>${unit}</span></div>`;}
-function filters(focusPrice=false){draft={...state.filters};let body='';if(state.kind==='car')body+=group('brand','제조사');else body+=group('category','카테고리');body+=`<section class="filter-group"><h3>가격 범위</h3><div class="input-row">${numberField('minPrice','최소 가격','원')}<span>–</span>${numberField('maxPrice','최대 가격','원')}</div></section>`;if(state.kind==='car'){body+=`<section class="filter-group"><h3>연식 · 주행거리</h3><div class="input-row">${numberField('minYear','최소 연식','년')}${numberField('maxMileage','최대 주행거리','km')}</div></section>`+group('fuel','연료');}else body+=group('condition','상품 상태')+group('method','거래 방법');body+=group('status','판매 상태')+'<p class="hint">서비스마다 제공하는 정보가 달라요. 필터는 이번에 가져온 결과에 적용되며, 해당 정보가 없는 매물은 조건에서 제외돼요.</p><p class="error" id="filter-error" role="alert"></p>';openSheet('원하는 조건으로 찾아요',body,'<button class="secondary-button" id="filter-reset">초기화</button><button class="primary-button" id="filter-apply">필터 적용하기</button>');$('#sheet-body').onclick=e=>{const b=e.target.closest('[data-option]');if(!b)return;draft[b.dataset.option]=b.dataset.value;b.parentElement.querySelectorAll('button').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',x===b);});};$('#filter-reset').onclick=()=>{draft=defaults();$('#sheet-body').querySelectorAll('input').forEach(input=>input.value='');$('#sheet-body').querySelectorAll('[data-option]').forEach(button=>{const selected=draft[button.dataset.option]===button.dataset.value;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',selected);});$('#filter-error').textContent='';};$('#filter-apply').onclick=()=>{for(const key of ['minPrice','maxPrice',...(state.kind==='car'?['minYear','maxMileage']:[])]){const val=$('#f-'+key).value;if(val!==''&&(!Number.isFinite(+val)||+val<0||!Number.isSafeInteger(+val))){$('#filter-error').textContent='0 이상의 정수를 입력해 주세요.';return;}draft[key]=val;}if(draft.minPrice!==''&&draft.maxPrice!==''&&+draft.minPrice>+draft.maxPrice){$('#filter-error').textContent='최대 가격은 최소 가격보다 커야 해요.';return;}if(draft.minYear!==''&&(+draft.minYear<1900||+draft.minYear>new Date().getFullYear()+1)){$('#filter-error').textContent='연식을 올바르게 입력해 주세요.';return;}state.filters={...draft};closeSheet();render();notify('필터를 적용했어요.');};if(focusPrice)$('#f-minPrice').focus();}
+function filters(){
+ draft={...state.filters,source:state.source,sort:state.sort,location:locationSnapshot(state)};
+ const serviceOptions=Object.fromEntries([['all',state.kind==='car'?'중고차 전체':'중고물품 전체'],...sourceKeys().map(key=>[key,sources[key].name])]);
+ let body=group('source','검색 서비스',serviceOptions)+group('sort','정렬',sortLabels);
+ body+=`<section class="filter-group filter-location"><h3>지역 · 내 주변</h3><div class="filter-location-row"><input id="filter-region" class="location-input" aria-label="지역 이름" placeholder="전국 · 지역을 입력해 주세요" maxlength="50" value="${esc(draft.location.coords?draft.location.locationName:draft.location.region)}"><button type="button" id="filter-nationwide" class="option">전국</button></div><button type="button" class="geo-button" id="filter-geo">${icon('pin')}현재 위치로 찾기</button><p class="hint" id="filter-geo-status">${esc(selectedLocationText(draft.location)||'지역을 입력하거나 현재 위치를 선택해 주세요.')}</p><div class="options filter-radius" role="group" aria-label="현재 위치 검색 반경">${[1,3,5,10,30,100].map(n=>`<button type="button" class="option ${draft.location.radius===n?'active':''}" data-radius="${n}" aria-pressed="${draft.location.radius===n}">${n}km</button>`).join('')}</div><p class="hint">현재 위치는 좌표가 있는 매물에 적용돼요. 좌표는 외부로 전송하지 않아요.</p></section>`;
+ body+=state.kind==='car'?group('brand','제조사'):group('category','카테고리');
+ body+=`<section class="filter-group"><h3>가격 범위</h3><div class="input-row">${numberField('minPrice','최소 가격','원')}<span>–</span>${numberField('maxPrice','최대 가격','원')}</div></section>`;
+ if(state.kind==='car')body+=`<section class="filter-group"><h3>연식 · 주행거리</h3><div class="input-row">${numberField('minYear','최소 연식','년')}${numberField('maxMileage','최대 주행거리','km')}</div></section>`+group('fuel','연료');
+ else body+=group('condition','상품 상태')+group('method','거래 방법');
+ body+=group('status','판매 상태')+'<p class="hint">조건과 정렬은 가져온 결과에 적용돼요. 해당 정보가 없는 매물은 조건에서 제외돼요.</p><p class="hint location-attribution">행정구역: <a href="https://sgis.kostat.go.kr/" target="_blank" rel="noopener noreferrer">통계청 SGIS</a> · <a href="https://github.com/vuski/admdongkor" target="_blank" rel="noopener noreferrer">vuski/admdongkor</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></p><p class="error" id="filter-error" role="alert"></p>';
+ openSheet('필터',body,'<button class="secondary-button" id="filter-reset">초기화</button><button class="primary-button" id="filter-apply">적용하기</button>');
+ const input=$('#filter-region'),geo=$('#filter-geo'),apply=$('#filter-apply'),status=$('#filter-geo-status'),error=$('#filter-error');
+ const version=sheetVersion;
+ let controller=null,alive=true;
+ const active=()=>alive&&version===sheetVersion&&$('#sheet').open;
+ const cancelLookup=()=>{controller?.abort();controller=null;geo.disabled=false;apply.disabled=false;};
+ sheetCleanup=()=>{alive=false;cancelLookup();};
+ const syncOptions=()=>{
+  $('#sheet-body').querySelectorAll('[data-option]').forEach(button=>{const selected=draft[button.dataset.option]===button.dataset.value;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));});
+  $('#sheet-body').querySelectorAll('[data-radius]').forEach(button=>{const selected=draft.location.radius===+button.dataset.radius;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));});
+ };
+ const resetLocation=()=>{cancelLookup();draft.location=normalizeLocation();input.value='';if(draft.sort==='distance')draft.sort='recent';status.textContent='전국에서 찾아요.';error.textContent='';syncOptions();};
+ $('#sheet-body').onclick=e=>{
+  const button=e.target.closest('button');if(!button)return;
+  if(button.dataset.option){draft[button.dataset.option]=button.dataset.value;error.textContent='';syncOptions();}
+  if(button.dataset.radius){draft.location.radius=+button.dataset.radius;status.textContent=selectedLocationText(draft.location)||`현재 위치를 선택하면 ${draft.location.radius}km 안에서 찾아요.`;syncOptions();}
+ };
+ input.oninput=()=>{cancelLookup();draft.location=normalizeLocation({region:input.value,radius:draft.location.radius});if(draft.sort==='distance')draft.sort='recent';status.textContent=input.value.trim()?'입력한 지역명으로 찾아요.':'전국에서 찾아요.';error.textContent='';syncOptions();};
+ $('#filter-nationwide').onclick=resetLocation;
+ geo.onclick=async()=>{
+  cancelLookup();const request=new AbortController();controller=request;geo.disabled=true;apply.disabled=true;error.textContent='';status.textContent='현재 위치와 지역명을 확인하고 있어요…';
+  try{
+   const found=await locateCurrentRegion({resolveName:lookupRegionName,signal:request.signal});
+   if(!active()||controller!==request||request.signal.aborted)return;
+   draft.location=normalizeLocation({...draft.location,coords:found.coords,locationName:found.locationName});
+   input.value=draft.location.locationName;status.textContent=`${selectedLocationText(draft.location)} · 적용하기를 눌러 주세요.`;error.textContent=found.warning||'';
+  }catch(reason){
+   if(!active()||controller!==request||request.signal.aborted)return;
+   status.textContent=selectedLocationText(draft.location)||'현재 위치를 선택하지 못했어요.';
+   error.textContent=reason.code==='permission'?'위치 권한이 꺼져 있어요. Safari 설정에서 허용하거나 지역을 입력해 주세요.':reason.code==='unsupported'?'이 브라우저는 위치 찾기를 지원하지 않아요. 지역을 직접 입력해 주세요.':'현재 위치를 확인하지 못했어요. 다시 시도하거나 지역을 입력해 주세요.';
+  }finally{if(active()&&controller===request){controller=null;geo.disabled=false;apply.disabled=false;}}
+ };
+ $('#filter-reset').onclick=()=>{cancelLookup();draft={...defaults(),source:'all',sort:'recent',location:normalizeLocation()};$('#sheet-body').querySelectorAll('input').forEach(field=>field.value='');status.textContent='전국에서 찾아요.';error.textContent='';syncOptions();};
+ apply.onclick=()=>{
+  for(const key of ['minPrice','maxPrice',...(state.kind==='car'?['minYear','maxMileage']:[])]){const value=$('#f-'+key).value;if(value!==''&&(!Number.isFinite(+value)||+value<0||!Number.isSafeInteger(+value))){error.textContent='0 이상의 정수를 입력해 주세요.';return;}draft[key]=value;}
+  if(draft.minPrice!==''&&draft.maxPrice!==''&&+draft.minPrice>+draft.maxPrice){error.textContent='최대 가격은 최소 가격보다 커야 해요.';return;}
+  if(draft.minYear!==''&&(+draft.minYear<1900||+draft.minYear>new Date().getFullYear()+1)){error.textContent='연식을 올바르게 입력해 주세요.';return;}
+  if(draft.sort==='distance'&&!draft.location.coords){error.textContent='가까운순으로 보려면 현재 위치를 먼저 선택해 주세요.';geo.focus();return;}
+  const source=searchScope(state.kind,draft.source).source,changedSource=source!==state.source;
+  state.filters=Object.fromEntries(Object.keys(defaults()).map(key=>[key,draft[key]]));state.source=source;state.sort=draft.sort;Object.assign(state,normalizeLocation(draft.location));
+  closeSheet();if(changedSource&&state.page==='search')searchLive();else render();notify('필터를 적용했어요.');
+ };
+}
 function locationSheet(){
  const selection=locationSnapshot(state);
  openSheet('어디에서 찾을까요?',`<p class="hint">동네 이름을 입력하거나 현재 위치를 사용해 보세요.</p><input id="region-input" class="location-input" aria-label="지역 이름" placeholder="예: 서울, 강남구, 성수동" maxlength="50" value="${esc(selection.coords?selection.locationName:selection.region)}"><button class="geo-button" id="geo-get">${icon('pin')}현재 위치로 찾기</button><p class="hint" id="geo-status">위치 좌표는 외부로 전송하지 않고 이 기기에서 지역명을 확인해요.</p><section class="filter-group"><h3>현재 위치 검색 반경</h3><div class="options">${[1,3,5,10,30,100].map(n=>`<button class="option ${selection.radius===n?'active':''}" data-radius="${n}" aria-pressed="${selection.radius===n}">${n}km</button>`).join('')}</div></section><p class="hint">지역을 직접 입력하면 지역명으로 검색해요. 현재 위치는 좌표가 있는 매물을 반경 안에서 보여 줘요. 위치와 반경은 이 탭의 방문 기록에 보관해 화면 이동·새로고침 때 복원해요.</p><p class="hint">지역명은 국내 행정동 경계 기준이며 GPS 오차나 경계 부근에서는 실제 주소와 다를 수 있어요. 필요하면 지역명을 직접 수정해 주세요.</p><p class="hint location-attribution">행정구역: <a href="https://sgis.kostat.go.kr/" target="_blank" rel="noopener noreferrer">통계청 SGIS</a> · <a href="https://github.com/vuski/admdongkor" target="_blank" rel="noopener noreferrer">vuski/admdongkor</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></p><p class="error" id="geo-error" role="alert"></p>`,'<button class="secondary-button" id="all-region">전국</button><button class="primary-button" id="region-apply">지역 적용하기</button>');
@@ -301,37 +352,35 @@ function toggleSave(id){
  else{const item=(state.page==='detail'&&state.detailItem?.id===id?state.detailItem:null)||data().find(x=>x.id===id);if(!item||!validateListing(item))return;if(state.savedRecords.size>=200){notify('찜은 최대 200개까지 저장할 수 있어요.');return;}state.saved.add(id);state.savedRecords.set(id,{...item,savedAt:new Date().toISOString()});}
  persist();render();notify(state.saved.has(id)?'찜한 매물에 담았어요.':'찜을 취소했어요.');
 }
-function info(){openSheet('USED를 소개해요',`<div class="info-block"><h3>검색할 때 실제 매물을 가져와요</h3><p>실제 검색은 접근 보호된 사이트에서 제공하며, Vercel 프로젝트 접근 권한이 있는 계정으로 로그인해야 해요. 검색어를 입력하면 연결 가능한 서비스의 공개 검색 결과에서 매물 정보를 가져와요. 각 서비스의 일부 결과를 표시하며 웹상의 모든 매물을 포함하지 않아요. 연결되지 않은 서비스와 오류는 결과 위에 표시해요.</p></div><div class="info-block"><h3>정보가 없는 경우도 있어요</h3><p>가격·사진·지역·판매 상태는 원문에서 제공한 범위만 보여요. 조건 필터는 가져온 결과에 적용하며, 정보가 없는 매물은 그 조건에서 제외돼요. 판매 여부와 변경된 가격은 원문에서 확인해 주세요.</p></div><div class="info-block"><h3>찜한 매물과 내 위치</h3><p>찜은 저장 당시 정보를 이 브라우저에 보관해요. 삭제되거나 판매가 끝난 매물도 찜에 남을 수 있어요. 다른 기기와 동기화되지 않으며 브라우저 데이터를 지우면 사라져요. 위치 좌표는 지역명 확인과 거리 계산에만 사용하며 외부로 전송하지 않아요. 선택한 위치·지역명·반경은 이 탭의 방문 기록에 보관해 뒤로가기와 새로고침 때 복원해요. 검색어와 선택한 서비스는 검색 서버와 해당 서비스에 전달돼요.</p></div><div class="info-block"><h3>거래는 원문 서비스에서</h3><p>USED는 구매·결제·채팅을 제공하지 않아요. 토스 디자인 시스템의 공개 원칙을 참고한 독립 구현이며 토스나 매물 제공 서비스의 공식 제휴 서비스가 아니에요.</p></div>`,'<button class="primary-button" id="info-done">확인했어요</button>');$('#info-done').onclick=closeSheet;}
+function info(){openSheet('USED를 소개해요',`<div class="info-block"><h3>검색할 때 실제 매물을 가져와요</h3><p>로그인 없이 검색할 수 있어요. 홈에서 선택한 중고물품 또는 중고차 범위에 속하는 서비스에서 매물을 가져와요. 각 서비스의 일부 결과를 표시하며 웹상의 모든 매물을 포함하지 않아요. 연결되지 않은 서비스와 오류는 결과 위에 표시해요.</p></div><div class="info-block"><h3>정보가 없는 경우도 있어요</h3><p>가격·사진·지역·판매 상태는 원문에서 제공한 범위만 보여요. 조건 필터는 가져온 결과에 적용하며, 정보가 없는 매물은 그 조건에서 제외돼요. 판매 여부와 변경된 가격은 원문에서 확인해 주세요.</p></div><div class="info-block"><h3>찜한 매물과 내 위치</h3><p>찜은 저장 당시 정보를 이 브라우저에 보관해요. 삭제되거나 판매가 끝난 매물도 찜에 남을 수 있어요. 다른 기기와 동기화되지 않으며 브라우저 데이터를 지우면 사라져요. 위치 좌표는 지역명 확인과 거리 계산에만 사용하며 외부로 전송하지 않아요. 선택한 위치·지역명·반경은 이 탭의 방문 기록에 보관해 뒤로가기와 새로고침 때 복원해요. 검색어와 선택한 서비스는 검색 서버와 해당 서비스에 전달돼요.</p></div><div class="info-block"><h3>거래는 원문 서비스에서</h3><p>USED는 구매·결제·채팅을 제공하지 않아요. 토스 디자인 시스템의 공개 원칙을 참고한 독립 구현이며 토스나 매물 제공 서비스의 공식 제휴 서비스가 아니에요.</p></div>`,'<button class="primary-button" id="info-done">확인했어요</button>');$('#info-done').onclick=closeSheet;}
 function install(){
  const iconImage='<img src="./assets/apple-touch-icon-1.2.0.png" alt="흰 배경에 USED와 파란 도트가 있는 앱 아이콘" width="76" height="76" style="border:1px solid #e5e8eb;border-radius:18px">';
  if(REQUIRES_LOGIN_REDIRECT){
   const appUrl=new URL(PROTECTED_SEARCH_URL);appUrl.searchParams.set('install','1');
-  openSheet('주소창 없이 앱으로 사용하기',`<div class="info-block">${iconImage}<h3>검색용 USED를 홈 화면에 추가해요</h3><p>현재 아이콘이 이 소개 페이지로 연결되어 있으면, 검색할 때 다른 주소로 이동하면서 브라우저의 상·하단 바가 나타나요.</p><ol><li>아래 ‘검색용 USED 열기’를 눌러 로그인해 주세요.</li><li>USED 화면이 열리면 공유 → ‘홈 화면에 추가’를 선택해요.</li><li>‘웹 앱으로 열기’가 보이면 켜고 추가해 주세요.</li></ol><p>다음부터 새 아이콘으로 열면 검색과 상세 페이지를 앱 안에서 이용할 수 있어요.</p></div>`,`<a class="primary-button" href="${esc(appUrl.href)}">검색용 USED 열기</a>`);
+  openSheet('주소창 없이 앱으로 사용하기',`<div class="info-block">${iconImage}<h3>검색용 USED를 홈 화면에 추가해요</h3><p>현재 아이콘이 이 소개 페이지로 연결되어 있으면, 검색할 때 다른 주소로 이동하면서 브라우저의 상·하단 바가 나타나요.</p><ol><li>아래 ‘검색용 USED 열기’를 눌러 주세요.</li><li>USED 화면이 열리면 공유 → ‘홈 화면에 추가’를 선택해요.</li><li>‘웹 앱으로 열기’가 보이면 켜고 추가해 주세요.</li></ol><p>다음부터 새 아이콘으로 열면 검색과 상세 페이지를 앱 안에서 이용할 수 있어요.</p></div>`,`<a class="primary-button" href="${esc(appUrl.href)}">검색용 USED 열기</a>`);
   return;
  }
  if(standalone()){
-  openSheet('앱으로 사용 중이에요',`<div class="info-block">${iconImage}<h3>검색과 상세 페이지를 한 화면에서</h3><p>USED 안에서는 브라우저 주소창 없이 이용할 수 있어요. 로그인이나 외부 매물 원문을 열 때는 브라우저 화면이 나타날 수 있어요.</p></div>`,'<button class="primary-button" id="install-done">확인했어요</button>');
+  openSheet('앱으로 사용 중이에요',`<div class="info-block">${iconImage}<h3>검색과 상세 페이지를 한 화면에서</h3><p>USED 안에서는 브라우저 주소창 없이 이용할 수 있어요. 외부 매물 원문을 열 때는 브라우저 화면이 나타날 수 있어요.</p></div>`,'<button class="primary-button" id="install-done">확인했어요</button>');
  }else{
-  openSheet('주소창 없이 앱으로 사용하기',`<div class="info-block">${iconImage}<h3>이 검색 화면을 홈 화면에 추가해요</h3><ol><li>Safari에서 USED 화면이 열린 상태로 공유 버튼을 눌러 주세요.</li><li>‘홈 화면에 추가’를 선택해요.</li><li>‘웹 앱으로 열기’가 보이면 켜고, 이름이 USED인지 확인한 뒤 추가해 주세요.</li><li>새로 추가한 USED 아이콘으로 다시 열어 주세요.</li></ol><p>검색과 상세 페이지에서는 브라우저의 주소창·도구 모음 없이 이용할 수 있어요. 로그인이나 외부 원문을 열 때는 브라우저 화면이 나타날 수 있어요.</p><p>기존 GitHub 주소의 아이콘을 쓰고 있다면 새 아이콘을 사용해 주세요. 새 앱에서는 로그인이 다시 필요할 수 있어요.</p></div>`,'<button class="primary-button" id="install-done">알겠어요</button>');
+  openSheet('주소창 없이 앱으로 사용하기',`<div class="info-block">${iconImage}<h3>이 검색 화면을 홈 화면에 추가해요</h3><ol><li>Safari에서 USED 화면이 열린 상태로 공유 버튼을 눌러 주세요.</li><li>‘홈 화면에 추가’를 선택해요.</li><li>‘웹 앱으로 열기’가 보이면 켜고, 이름이 USED인지 확인한 뒤 추가해 주세요.</li><li>새로 추가한 USED 아이콘으로 다시 열어 주세요.</li></ol><p>검색과 상세 페이지에서는 브라우저의 주소창·도구 모음 없이 이용할 수 있어요. 외부 원문을 열 때는 브라우저 화면이 나타날 수 있어요.</p><p>기존 GitHub 주소의 아이콘을 쓰고 있다면 새 아이콘을 사용해 주세요.</p></div>`,'<button class="primary-button" id="install-done">알겠어요</button>');
  }
  $('#install-done').onclick=closeSheet;
 }
 document.addEventListener('click',e=>{
  const el=e.target.closest('button');if(!el)return;
- if(el.dataset.kind){state.kind=el.dataset.kind;state.source='all';state.filters=defaults();state.query='';syncQueries();if(state.page==='search')searchLive();else render();}
- if(el.dataset.source){state.source=el.dataset.source;if(state.page==='search')searchLive();else render();}
+ if(el.dataset.kind&&state.page==='home'){state.kind=searchScope(el.dataset.kind).kind;state.source='all';state.filters=defaults();state.sort='recent';state.query='';syncQueries();render();}
  if(el.dataset.suggest)submitSearch(el.dataset.suggest,{reset:state.page==='home'});
  if(el.dataset.save)toggleSave(el.dataset.save);
  if(el.dataset.detail)detail(el.dataset.detail);
  if(el.dataset.page)navigate(el.dataset.page);
  if(el.id==='reset-results')resetFilters();
- if(el.id==='retry-search')searchLive();
+ if(el.id==='retry-search')searchLive({force:true});
 });
 $('#search-form').onsubmit=e=>{e.preventDefault();submitSearch($('#query').value);$('#query').blur();};
 $('#home-search-form').onsubmit=e=>{e.preventDefault();submitSearch($('#home-query').value,{reset:true});$('#home-query').blur();};
 $('#query').addEventListener('input',()=>{if(!$('#query').value){state.query='';searchLive();}});
-$('#sort').onchange=e=>{if(e.target.value==='distance'&&!state.coords){e.target.value=state.sort;notify('가까운순 정렬을 위해 현재 위치를 설정해 주세요.');locationSheet();return;}state.sort=e.target.value;render();};
-$('#filters-open').onclick=()=>filters();$('#price-open').onclick=()=>filters(true);$('#location-open').onclick=locationSheet;$('#nearby-open').onclick=locationSheet;
+$('#filters-open').onclick=()=>filters();$('#location-open').onclick=locationSheet;
 $('#detail-back').onclick=detailBack;
 $('#results-back').onclick=()=>{if(routeHistory.isPending())return;if(history.state?.usedRoute&&routeDepth>0){routeScroll=window.scrollY;routeHistory.rememberScroll(routeScroll);syncRoute();if(routeHistory.back())return;}navigate('home',{replace:true});};
 $('#info-open').onclick=info;$('#install-open').onclick=install;$('#home-install').onclick=install;
@@ -350,7 +399,7 @@ $('#home-install').hidden=standalone()&&!REQUIRES_LOGIN_REDIRECT;
 $('#home-header .wordmark').onclick=e=>{e.preventDefault();navigate('home',{replace:state.page==='home'});};
 for(const id of ['query','home-query'])$('#'+id).maxLength=80;
 if(stored.some(id=>!state.saved.has(id))||snapshots.some(item=>!validateListing(item)))persist();
-if(REQUIRES_LOGIN_REDIRECT)for(const id of ['search-form','home-search-form'])$('#'+id+' button[type=submit]').setAttribute('aria-label','로그인 후 검색');
+if(REQUIRES_LOGIN_REDIRECT)for(const id of ['search-form','home-search-form'])$('#'+id+' button[type=submit]').setAttribute('aria-label','검색');
 export const appReady=new Promise((resolve,reject)=>{
  try{
   paintIcons();initRefresh();

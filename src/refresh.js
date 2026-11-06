@@ -1,4 +1,4 @@
-import {APP_VERSION} from './version.js?v=1.5.0';
+import {APP_VERSION} from './version.js?v=1.6.0';
 
 // Update checks may stall offline. Reload the current route within a bounded wait.
 async function checkForUpdate() {

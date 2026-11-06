@@ -1,8 +1,8 @@
-import {createSplash} from './splash.js?v=1.5.0';
+import {createSplash} from './splash.js?v=1.6.0';
 
 const splash=createSplash();
 try {
-const {getCanonicalRedirect}=await import('./config.js?v=1.5.0');
+const {getCanonicalRedirect}=await import('./config.js?v=1.6.0');
 splash.advance(25);
 const destination=getCanonicalRedirect(location.href);
 if(destination){
@@ -15,7 +15,7 @@ if(destination){
   title.style.cssText='font-size:24px;letter-spacing:-.6px;margin:24px 0 12px';
   title.textContent='USED로 이동하고 있어요';
   const description=document.createElement('p');
-  description.textContent='이제 홈부터 검색과 매물 상세까지 한곳에서 이용해요. 로그인이 필요할 수 있어요.';
+  description.textContent='홈부터 검색과 매물 상세까지 로그인 없이 이용해요.';
   const link=document.createElement('a');
   link.className='primary-button';link.href=destination;link.textContent='USED 열기';
   const installNote=document.createElement('p');
@@ -28,7 +28,7 @@ if(destination){
   location.replace(destination);
 }else{
   splash.advance(40);
-  const app=await import('./app.js?v=1.5.0');
+  const app=await import('./app.js?v=1.6.0');
   await app.appReady;
   splash.advance(90);
   await splash.finish();

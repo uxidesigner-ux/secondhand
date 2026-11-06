@@ -1,11 +1,13 @@
 import {searchEncarInBrowser} from './providers/encar.js';
 import {validateListing, filterListings} from './search.js';
+import {createRecoveryGuard} from './recovery-guard.js';
+const browserRecoveryGuard = createRecoveryGuard();
 
 const carSources = ['encar', 'kb', 'kcar'];
 const providerStatuses = ['ok', 'error', 'unavailable'];
 const browserFailureMessage = '이 기기의 브라우저에서도 엔카 검색에 연결하지 못했어요. 원문 서비스에서 확인해 주세요.';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const normalize = value => value.normalize('NFKC').trim();
+const normalize = value => value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
 const throwIfAborted = signal => {
   if (signal?.aborted) throw signal.reason || new DOMException('검색이 취소됐어요.', 'AbortError');
 };
@@ -21,18 +23,21 @@ function validPayload(payload, query) {
     && (provider.count === undefined || (Number.isSafeInteger(provider.count) && provider.count >= 0)));
 }
 
-/** Recover only a failed Encar provider after the protected search endpoint has
+/** Recover only a failed Encar provider after the same-origin search endpoint has
  * returned its normal JSON contract. Authentication/rate-limit failures never
  * trigger a separate browser request. Other providers remain untouched. */
-export async function recoverEncar({payload, status, kind, source, query, signal, searchEncar = searchEncarInBrowser}) {
+export async function recoverEncar({payload, status, kind, source, query, signal, searchEncar = searchEncarInBrowser,
+  recoveryGuard = searchEncar === searchEncarInBrowser ? browserRecoveryGuard : null}) {
   if (kind !== 'car' || !['all', 'encar'].includes(source) || ![200, 502].includes(status)) return payload;
   if (typeof query !== 'string') return payload;
   const term = normalize(query);
   if (!term || term.length > 80 || /[\u0000-\u001f\u007f]/u.test(term) || !validPayload(payload, term)) return payload;
   const failed = payload.providers.find(provider => provider.source === 'encar');
   if (!failed || !['error', 'unavailable'].includes(failed.status)) return payload;
+  if (failed.code === 'PROVIDER_BUSY') return payload;
 
   throwIfAborted(signal);
+  if (recoveryGuard && !recoveryGuard.acquire()) return payload;
   try {
     const result = await searchEncar({query: term, limit: 30, signal});
     throwIfAborted(signal);
@@ -52,7 +57,8 @@ export async function recoverEncar({payload, status, kind, source, query, signal
   } catch (error) {
     throwIfAborted(signal);
     if (error?.name === 'AbortError') throw error;
+    recoveryGuard?.failed();
     return {...payload, providers: payload.providers.map(provider => provider.source === 'encar'
       ? {...provider, message: browserFailureMessage} : provider)};
-  }
+  } finally { recoveryGuard?.release(); }
 }
