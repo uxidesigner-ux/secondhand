@@ -24,11 +24,15 @@ export function createIconScene(T, model, kind) {
   const size=64, pixels=new Uint8Array(size*size*4);
   for(let y=0;y<size;y++)for(let x=0;x<size;x++){
     const distance=Math.hypot((x+.5-size/2)/(size/2),(y+.5-size/2)/(size/2));
-    const falloff=Math.pow(Math.max(0,1-distance*distance),2.6);
+    // Keep density until the plinth edge, then feather out beyond it. A radial
+    // gradient fading from the centre would be hidden almost entirely by it.
+    const edge=T.MathUtils.clamp((distance-.5)/.5,0,1);
+    const falloff=1-edge*edge*(3-2*edge);
     const index=(y*size+x)*4;
-    pixels.set([104,96,83,Math.round(falloff*66)],index);
+    pixels.set([104,96,83,Math.round(falloff*90)],index);
   }
   const texture=new T.DataTexture(pixels,size,size,T.RGBAFormat);
+  texture.colorSpace=T.SRGBColorSpace;
   texture.needsUpdate=true; texture.magFilter=T.LinearFilter; texture.minFilter=T.LinearFilter;
   const ground=new T.Mesh(new T.CircleGeometry(radius*1.14,64),
     new T.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,toneMapped:false}));
