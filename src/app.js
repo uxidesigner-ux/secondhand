@@ -1,12 +1,14 @@
-import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.3.2';
-import {locateCurrentRegion} from './location-lookup.js?v=1.3.2';
-import {lookupRegionName} from './region-geocoder.js?v=1.3.2';
-import {initRefresh} from './refresh.js?v=1.3.2';
-import {mountCarDetail} from './car-detail.js?v=1.3.2';
+import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.4.0';
+import {locateCurrentRegion} from './location-lookup.js?v=1.4.0';
+import {lookupRegionName} from './region-geocoder.js?v=1.4.0';
+import {initRefresh} from './refresh.js?v=1.4.0';
+import {shareService} from './share.js?v=1.4.0';
+import {mountCarDetail} from './car-detail.js?v=1.4.0';
 import {resolveDetailItem} from './detail-route.js';
-import {recoverEncar} from './encar-fallback.js?v=1.3.2';
+import {createRouteHistory} from './route-history.js';
+import {recoverEncar} from './encar-fallback.js?v=1.4.0';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.3.2';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.4.0';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -28,7 +30,7 @@ const savedRecords=new Map(snapshots.filter(validateListing).map(item=>[item.id,
 const rejectedSavedIds=new Set(snapshots.filter(item=>!validateListing(item)).map(item=>item?.id));
 const state={kind:'goods',page:'home',source:'all',query:'',sort:'recent',filters:defaults(),region:'',coords:null,radius:5,locationName:'',saved:new Set([...stored.filter(id=>typeof id==='string'&&!/^demo(?:-|$)/i.test(id)&&!rejectedSavedIds.has(id)),...savedRecords.keys()]),savedRecords,live:[],loading:false,requested:false,error:'',providers:[],fetchedAt:null,partial:false,detailId:'',detailItem:null};
 let draft={},toastTimer,requestController=null,requestVersion=0;
-let routeDepth=0,routeScroll=0,routeVersion=0,restoringScroll=false,scrollFrame=0,liveKey='';
+let routeDepth=0,routeScroll=0,routeVersion=0,restoringScroll=false,liveKey='';
 const searchKey=()=>JSON.stringify([state.kind,state.source,state.query]);
 history.scrollRestoration='manual';
 function syncQueries(){for(const id of ['query','home-query'])$('#'+id).value=state.query;}
@@ -42,15 +44,17 @@ function routeUrl(){
  if(state.page!=='home'&&state.source!=='all')url.searchParams.set('source',state.source);
  return url;
 }
-function syncRoute(){history.replaceState(routeData(),'',routeUrl());}
+const routeHistory=createRouteHistory({history,snapshot:routeData,url:routeUrl});
+function syncRoute(){return routeHistory.sync();}
 function navigate(page,{replace=false}={}){
+ if(routeHistory.isPending())return;
  if($('#sheet').open)closeSheet();
  if(page===state.page)replace=true;
- routeScroll=window.scrollY;syncRoute();clearCarDetail();
+ routeScroll=window.scrollY;routeHistory.rememberScroll(routeScroll);syncRoute();clearCarDetail();
  const version=++routeVersion;restoringScroll=true;routeScroll=0;
  cancelSearch();state.page=page;syncQueries();
  if(!replace)routeDepth++;
- history[replace?'replaceState':'pushState'](routeData(),'',routeUrl());
+ if(!(replace?syncRoute():routeHistory.push())){location.assign(routeUrl().href);return;}
  render();window.scrollTo({top:0,behavior:'auto'});
  if(page==='detail')$('#detail-page-title').focus({preventScroll:true});
  requestAnimationFrame(()=>{if(version===routeVersion)restoringScroll=false;});
@@ -61,11 +65,12 @@ function submitSearch(query,{reset=false}={}){
  if(REQUIRES_LOGIN_REDIRECT){state.page='search';searchLive();return;}
  navigate('search',{replace:state.page==='search'});searchLive();
 }
-async function restoreRoute(entry){
+async function restoreRoute(entry,onRendered){
+ routeHistory.restored();
  if($('#sheet').open)closeSheet();
  clearCarDetail();cancelSearch();const version=++routeVersion;restoringScroll=true;
  routeDepth=entry?.usedRoute&&Number.isInteger(entry.depth)?entry.depth:0;
- const restoreY=entry?.usedRoute&&Number.isFinite(entry.scrollY)?Math.max(0,entry.scrollY):0;routeScroll=restoreY;
+ const restoreY=entry?.usedRoute?routeHistory.scrollFor(entry):0;routeScroll=restoreY;
  const params=new URLSearchParams(location.search);
  state.kind=entry?.usedRoute?entry.kind:params.get('kind')==='car'?'car':'goods';
  state.query=entry?.usedRoute?entry.query:(params.get('q')||'').slice(0,80);
@@ -78,14 +83,15 @@ async function restoreRoute(entry){
  if(state.page==='detail'&&REQUIRES_LOGIN_REDIRECT){
   const url=new URL(protectedSearchUrl({query:state.query,kind:state.kind,source:state.source}));url.searchParams.set('view','detail');url.searchParams.set('item',state.detailId);location.assign(url.href);return;
  }
- syncQueries();$('#sort').value=state.sort;render();
+ syncQueries();$('#sort').value=state.sort;render();onRendered?.();
  if(state.page==='search'&&!REQUIRES_LOGIN_REDIRECT&&liveKey!==searchKey())await searchLive();
  if(version!==routeVersion)return;
  window.scrollTo({top:restoreY,behavior:'auto'});routeScroll=restoreY;syncRoute();
  requestAnimationFrame(()=>{if(version===routeVersion)restoringScroll=false;});
 }
 window.addEventListener('popstate',event=>restoreRoute(event.state));
-window.addEventListener('scroll',()=>{if(restoringScroll)return;routeScroll=Math.max(0,window.scrollY);if(scrollFrame)return;scrollFrame=requestAnimationFrame(()=>{scrollFrame=0;if(!restoringScroll)syncRoute();});},{passive:true});
+window.addEventListener('scroll',()=>{if(restoringScroll||routeHistory.isPending())return;routeScroll=Math.max(0,window.scrollY);routeHistory.rememberScroll(routeScroll);},{passive:true});
+window.addEventListener('pagehide',()=>{if(routeHistory.isPending())return;routeScroll=Math.max(0,window.scrollY);routeHistory.rememberScroll(routeScroll);syncRoute();});
 
 function notify(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),2600);}
 function persist(){try{localStorage.setItem('used:saved',JSON.stringify([...state.saved]));localStorage.setItem('used:saved-records',JSON.stringify([...state.savedRecords.values()]));}catch{notify('저장 공간을 사용할 수 없어 이번 방문에서만 찜해요.');}}
@@ -137,9 +143,10 @@ function render(){
  if(!state.coords&&state.sort==='distance')state.sort='recent';
  $('#sort').value=state.sort;
  const home=state.page==='home',isDetail=state.page==='detail',isSaved=state.page==='saved',isMenu=isSaved||state.page==='services';
- $('#detail-header').hidden=!isDetail;$('#detail-screen').hidden=!isDetail;$('#detail-actions').hidden=!isDetail;$('.bottom-nav').hidden=isDetail;$('.footnote').hidden=isDetail||isSaved;
+ $('#detail-header').hidden=!isDetail;$('#detail-screen').hidden=!isDetail;$('#detail-actions').hidden=!isDetail;$('.bottom-nav').hidden=isDetail;$('.footnote').hidden=home||isDetail||isSaved;
  $('.app').classList.toggle('detail-view',isDetail);
- $('#home-search-note').textContent=REQUIRES_LOGIN_REDIRECT?'실제 검색 결과는 접근 권한이 있는 Vercel 계정으로 로그인 후 볼 수 있어요.':'검색할 때 여러 서비스의 실제 매물을 모아 보여 드려요.';
+ $('.app').classList.toggle('home-view',home);
+ $('#home-providers').textContent=sourceKeys().map(key=>sources[key].name).join(' · ');
  $('#home-screen').hidden=!home;$('#home-header').hidden=!home;$('#results-header').hidden=home||isDetail;$('#browse-screen').hidden=home||isDetail;
  $('.app').classList.toggle('results-view',!home&&!isDetail);
  $('.app').classList.toggle('menu-view',isMenu);
@@ -166,8 +173,9 @@ function render(){
  const active=document.activeElement;const focusKey=['save','source','suggest'].find(key=>active?.dataset?.[key]);const focusValue=focusKey?active.dataset[focusKey]:null;const focusIndex=focusKey==='save'?[...document.querySelectorAll('[data-save]')].indexOf(active):0;
  document.querySelectorAll('[data-kind]').forEach(e=>{e.classList.toggle('active',e.dataset.kind===state.kind);e.setAttribute('aria-pressed',e.dataset.kind===state.kind);});
  document.querySelectorAll('[data-page]').forEach(e=>{const selected=e.dataset.page===state.page||(e.dataset.page==='home'&&state.page==='search');e.classList.toggle('active',selected);e.setAttribute('aria-current',selected?'page':'false');});
- for(const id of ['query','home-query'])$('#'+id).placeholder=state.kind==='car'?'어떤 차를 찾고 있나요?':'어떤 물건을 찾고 있나요?';
- $('#suggestions').innerHTML='<span>추천 검색</span>'+(state.kind==='car'?['그랜저','쏘렌토','BMW','테슬라']:['아이폰','에어팟','카메라','의자']).map(x=>`<button data-suggest="${x}">${x}</button>`).join('');
+ $('#query').placeholder=state.kind==='car'?'어떤 차를 찾고 있나요?':'어떤 물건을 찾고 있나요?';
+ $('#home-query').placeholder=state.kind==='car'?'찾는 차가 있나요?':'찾는 물건이 있나요?';
+ $('#suggestions').innerHTML=(state.kind==='car'?['그랜저','쏘렌토','BMW']:['아이폰','에어팟','카메라']).map(x=>`<button data-suggest="${x}">${x}</button>`).join('');
  $('#source-tabs').innerHTML=[['all','전체'],...sourceKeys().map(k=>[k,k==='other'?'기타':sources[k].name])].map(([key,name])=>`<button data-source="${key}" aria-pressed="${state.source===key}" class="${state.source===key?'active':''}">${name}</button>`).join('');
  revealSelectedSource();
  const summary=filterSummary();$('#filter-summary').textContent=summary.join(' · ')||'필터';$('#filters-open').title=summary.join(' · ')||'필터 설정';$('#filters-open').classList.toggle('selected',!!summary.length);$('#filter-count').hidden=!summary.length;$('#filter-count').textContent=summary.length;
@@ -249,8 +257,12 @@ function detail(id){
  state.detailId=id;state.detailItem=item;navigate('detail');
 }
 function detailBack(){
- if(history.state?.usedRoute&&routeDepth>0){routeScroll=window.scrollY;syncRoute();history.back();}
- else{navigate(state.query?'search':'home',{replace:true});if(state.page==='search'&&liveKey!==searchKey())searchLive();}
+ if(state.page!=='detail'||routeHistory.isPending())return;
+ routeScroll=window.scrollY;routeHistory.rememberScroll(routeScroll);
+ // Stop photos/network callbacks immediately, before the asynchronous popstate.
+ clearCarDetail();cancelSearch();
+ if(history.state?.usedRoute&&routeDepth>0){syncRoute();if(routeHistory.back())return;}
+ navigate(state.query?'search':'home',{replace:true});if(state.page==='search'&&liveKey!==searchKey())searchLive();
 }
 function updateDetailSave(){
  const button=$('#detail-save');if(!button)return;
@@ -271,7 +283,7 @@ function renderDetailPage(){
  const sourceLink=`<div class="detail-link"><label for="detail-url">실제 매물 링크</label><div class="detail-link-row"><input id="detail-url" type="url" value="${esc(i.url)}" readonly spellcheck="false"><button id="detail-copy" type="button" aria-label="실제 매물 링크 복사">링크 복사</button></div></div>`;
  $('#detail-page-body').innerHTML=summary+sourceLink+`<p class="hint">수집 또는 저장 당시 정보예요. 삭제·판매완료·가격 변경이 반영되지 않았을 수 있어요. 실제 판매 여부와 상세 조건은 원문에서 확인해 주세요. USED에서는 구매와 결제를 제공하지 않아요.</p>`;$('#detail-actions').innerHTML=`<button class="secondary-button" id="detail-save">${state.saved.has(id)?'찜 취소':'찜하기'}</button><a class="primary-button" href="${esc(i.url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(i.sourceName)}에서 실제 매물 보기 (새 탭)">${esc(i.sourceName)}에서 보기${icon('external')}</a>`;
  if(rich)carDetailCleanup=mountCarDetail({item:i,container:$('#car-detail-content'),onUpdate:d=>{
-  if(state.page!=='detail'||state.detailId!==id)return;
+  if(state.page!=='detail'||state.detailId!==id||routeHistory.isPending())return;
   state.detailItem={...i,title:d.title,price:d.price,image:d.photos[0]||i.image,collectedAt:d.fetchedAt};
   document.title=`${d.title} — USED`;updateDetailSave();syncRoute();
  }});
@@ -319,12 +331,28 @@ $('#query').addEventListener('input',()=>{if(!$('#query').value){state.query='';
 $('#sort').onchange=e=>{if(e.target.value==='distance'&&!state.coords){e.target.value=state.sort;notify('가까운순 정렬을 위해 현재 위치를 설정해 주세요.');locationSheet();return;}state.sort=e.target.value;render();};
 $('#filters-open').onclick=()=>filters();$('#price-open').onclick=()=>filters(true);$('#location-open').onclick=locationSheet;$('#nearby-open').onclick=locationSheet;
 $('#detail-back').onclick=detailBack;
-$('#results-back').onclick=()=>{if(history.state?.usedRoute&&routeDepth>0)history.back();else navigate('home',{replace:true});};
+$('#results-back').onclick=()=>{if(routeHistory.isPending())return;if(history.state?.usedRoute&&routeDepth>0){routeScroll=window.scrollY;routeHistory.rememberScroll(routeScroll);syncRoute();if(routeHistory.back())return;}navigate('home',{replace:true});};
 $('#info-open').onclick=info;$('#install-open').onclick=install;$('#home-install').onclick=install;
+$('#home-share').onclick=async()=>{
+ const button=$('#home-share');if(button.disabled)return;button.disabled=true;
+ try{
+  const result=await shareService();
+  if(result.status==='copied')notify('USED 링크를 복사했어요.');
+  if(result.status==='manual'){
+   openSheet('USED 공유하기',`<p class="hint">아래 주소를 길게 눌러 복사해 주세요.</p><div class="detail-link-row"><input id="service-share-url" type="url" aria-label="USED 서비스 주소" value="${esc(result.url)}" readonly></div>`,'<button class="primary-button" id="share-done">닫기</button>');
+   $('#share-done').onclick=closeSheet;const field=$('#service-share-url');field.focus();field.select();field.setSelectionRange(0,field.value.length);
+  }
+ }finally{button.disabled=false;}
+};
 $('#home-install').hidden=standalone()&&!REQUIRES_LOGIN_REDIRECT;
 $('#home-header .wordmark').onclick=e=>{e.preventDefault();navigate('home',{replace:state.page==='home'});};
 for(const id of ['query','home-query'])$('#'+id).maxLength=80;
 if(stored.some(id=>!state.saved.has(id))||snapshots.some(item=>!validateListing(item)))persist();
 if(REQUIRES_LOGIN_REDIRECT)for(const id of ['search-form','home-search-form'])$('#'+id+' button[type=submit]').setAttribute('aria-label','로그인 후 검색');
-paintIcons();initRefresh();restoreRoute(history.state?.usedRoute?history.state:null).then(()=>{if(installRequested)install();});
+export const appReady=new Promise((resolve,reject)=>{
+ try{
+  paintIcons();initRefresh();
+  restoreRoute(history.state?.usedRoute?history.state:null,resolve).then(()=>{if(installRequested)install();}).catch(reject);
+ }catch(error){reject(error);}
+});
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});

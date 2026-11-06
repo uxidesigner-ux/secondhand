@@ -1,5 +1,9 @@
-import {getCanonicalRedirect} from './config.js?v=1.3.2';
+import {createSplash} from './splash.js?v=1.4.0';
 
+const splash=createSplash();
+try {
+const {getCanonicalRedirect}=await import('./config.js?v=1.4.0');
+splash.advance(25);
 const destination=getCanonicalRedirect(location.href);
 if(destination){
   document.title='USED로 이동 중';
@@ -15,11 +19,21 @@ if(destination){
   const link=document.createElement('a');
   link.className='primary-button';link.href=destination;link.textContent='USED 열기';
   const installNote=document.createElement('p');
-  installNote.style.cssText='font-size:13px;color:#6b7684';
+  installNote.style.cssText='font-size:14px;color:#6b7684';
   installNote.textContent='기존 홈 화면 아이콘을 쓰고 있다면, 이동한 USED 화면에서 새 아이콘을 추가해 주세요.';
   main.append(logo,title,description,link,installNote);
+  splash.dispose();
+  document.documentElement.classList.remove('booting');
   document.body.replaceChildren(main);
   location.replace(destination);
 }else{
-  await import('./app.js?v=1.3.2');
+  splash.advance(40);
+  const app=await import('./app.js?v=1.4.0');
+  await app.appReady;
+  splash.advance(90);
+  await splash.finish();
+}
+}catch(error){
+  splash.fail();
+  console.error('USED startup failed',error);
 }

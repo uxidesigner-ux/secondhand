@@ -157,6 +157,63 @@ h2 { font-size: var(--font-subheading); line-height: 1.45; }
 .services-view .external { margin-top: 0; }
 .saved-view #browse-screen { padding-block: 24px 32px; }
 
+/* A quiet home centered on choosing a category and starting a search. */
+.home-view .header { border-bottom: 0; }
+.home-view main { max-width: 760px; margin-inline: auto; }
+.home-view #home-screen { padding-bottom: 24px; }
+.home-intro { padding: clamp(30px, 6vh, 62px) 0 32px; text-align: center; }
+.home-view .home-intro h1 { max-width: none; font-size: 36px; line-height: 1.3; letter-spacing: -1.5px; }
+.home-kind-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+.home-kind-tabs>button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 146px; padding: 18px 12px; border: 2px solid transparent; border-radius: 24px; background: #f5f6f8; color: #6b7684; font-size: 18px; font-weight: 700; transition: background .18s, border-color .18s, color .18s; }
+.home-kind-tabs>button.active { background: #edf4ff; border-color: #3182f6; color: #1b64da; }
+.home-kind-icon { display: block; width: 62px; height: 62px; color: #8b95a1; }
+.home-kind-icon svg { width: 100%; height: 100%; stroke-width: 2.5; }
+.home-kind-icon .kind-icon-main { fill: #fff; }
+.home-kind-icon .kind-icon-soft { fill: #e5e8eb; stroke: #c9cfd7; }
+.home-kind-icon .kind-icon-dot { fill: #b0b8c1; stroke: none; }
+.home-kind-icon .kind-icon-light { stroke: currentColor; stroke-width: 3.5; }
+.active .home-kind-icon { color: #3182f6; }
+.active .home-kind-icon .kind-icon-main { fill: #fff; }
+.active .home-kind-icon .kind-icon-soft { fill: #c9dfff; stroke: #82b3ff; }
+.active .home-kind-icon .kind-icon-dot { fill: #82b3ff; }
+.kind-check { position: absolute; right: 12px; top: 12px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #3182f6; color: #fff; opacity: 0; }
+.kind-check svg { width: 14px; height: 14px; stroke-width: 2.5; }
+.active .kind-check { opacity: 1; }
+#home-search-form { height: 72px; padding: 8px 9px 8px 18px; gap: 12px; border: 2px solid #3182f6; border-radius: 22px; background: #fff; box-shadow: 0 8px 28px #3182f612; }
+#home-search-form:focus-within { border-color: #1b64da; box-shadow: 0 0 0 4px #3182f612; }
+#home-search-form>span { color: #3182f6; flex-shrink: 0; }
+#home-search-form input { font-size: 18px; }
+#home-search-form button { flex: 0 0 48px; width: 48px; height: 48px; border-radius: 15px; }
+#home-search-form button svg { width: 22px; height: 22px; }
+.home-view .suggestions { justify-content: center; margin: 16px 0 22px; gap: 8px; }
+.home-view .suggestions button { border: 0; background: #f5f6f8; padding: 9px 14px; }
+.home-providers { margin: 0; text-align: center; color: var(--text-secondary); font-size: var(--font-caption); line-height: 1.8; }
+.home-utilities { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 24px; margin-top: 28px; }
+.home-utilities button { min-height: 44px; padding: 8px 0; font-size: var(--font-caption); color: var(--text-secondary); font-weight: 500; }
+.home-utilities .home-install { gap: 6px; }
+.home-share { color: #333d4b; background: #f5f6f8; }
+.home-view .deployment-footer { border-top: 0; padding-top: 8px; }
+@media (max-width:640px) {
+  .home-intro { padding-top: clamp(28px, 5vh, 42px); padding-bottom: 28px; }
+  .home-view .home-intro h1 { font-size: 32px; }
+  .home-kind-tabs>button { min-height: 136px; border-radius: 22px; }
+  #home-search-form { height: 68px; padding-left: 14px; gap: 10px; }
+  #home-search-form>span svg { width: 22px; height: 22px; }
+  .home-view .header-actions { gap: 10px; }
+}
+@media (max-width:360px) {
+  .home-intro { padding-top: 22px; padding-bottom: 24px; }
+  .home-kind-tabs { gap: 10px; margin-bottom: 20px; }
+  .home-kind-tabs>button { min-height: 124px; padding: 14px 8px; }
+  .home-kind-icon { width: 54px; height: 54px; }
+  #home-search-form { padding-left: 12px; gap: 8px; }
+  #home-search-form input { font-size: 16px; }
+  #home-search-form>span { display: none; }
+  .home-view .suggestions { gap: 6px; }
+  .home-view .suggestions button { padding-inline: 11px; }
+  .home-view .header-actions { gap: 4px; }
+}
+
 /* Icon navigation keeps visible targets generous; accessible names remain in markup. */
 .bottom-nav { align-items: center; gap: clamp(24px, 8vw, 80px); padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
 .bottom-nav button {
