@@ -1,16 +1,17 @@
-import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.6.0';
-import {locateCurrentRegion} from './location-lookup.js?v=1.6.0';
-import {lookupRegionName} from './region-geocoder.js?v=1.6.0';
-import {initRefresh} from './refresh.js?v=1.6.0';
-import {shareService} from './share.js?v=1.6.0';
-import {mountCarDetail} from './car-detail.js?v=1.6.0';
+import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.6.1';
+import {locateCurrentRegion} from './location-lookup.js?v=1.6.1';
+import {lookupRegionName} from './region-geocoder.js?v=1.6.1';
+import {initRefresh} from './refresh.js?v=1.6.1';
+import {shareService} from './share.js?v=1.6.1';
+import {mountCarDetail} from './car-detail.js?v=1.6.1';
 import {resolveDetailItem} from './detail-route.js';
 import {createRouteHistory} from './route-history.js';
-import {recoverEncar} from './encar-fallback.js?v=1.6.0';
+import {recoverEncar} from './encar-fallback.js?v=1.6.1';
 import {filterListings, distanceKm, validateListing} from './search.js';
 import {searchScope,isInSearchScope,normalizedSearchQuery,searchRequestKey} from './search-scope.js';
 import {createSearchCache} from './search-cache.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.6.0';
+import {createSearchLimitNotice} from './search-limit.js';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.6.1';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -37,10 +38,13 @@ let draft={},toastTimer,requestController=null,requestVersion=0;
 let routeDepth=0,routeScroll=0,routeVersion=0,restoringScroll=false,liveKey='';
 const searchKey=()=>searchRequestKey(state);
 const searchCache=createSearchCache();
+const searchLimitNotice=createSearchLimitNotice();
+let lastSearchResult=null,limitNoticeTimer=null,lastAnnouncedLimit=null;
+state.retainedQuery=null;state.rateLimited=false;
 let activeSearchKey='';
 history.scrollRestoration='manual';
 function syncQueries(){for(const id of ['query','home-query'])$('#'+id).value=state.query;}
-function routeData(){return {usedRoute:true,depth:routeDepth,page:state.page,kind:state.kind,source:state.source,query:state.query,filters:{...state.filters},sort:state.sort,location:locationSnapshot(state),scrollY:routeScroll,...(state.page==='detail'?{detailId:state.detailId,detailItem:validateListing(state.detailItem)?state.detailItem:null}:{})};}
+function routeData(){return {usedRoute:true,depth:routeDepth,page:state.page,kind:state.kind,source:state.source,query:state.query,retainedQuery:state.retainedQuery,rateLimited:state.rateLimited,filters:{...state.filters},sort:state.sort,location:locationSnapshot(state),scrollY:routeScroll,...(state.page==='detail'?{detailId:state.detailId,detailItem:validateListing(state.detailItem)?state.detailItem:null}:{})};}
 function routeUrl(){
  const url=new URL(location.href);url.search='';url.hash='';
  if(state.page!=='home')url.searchParams.set('view',state.page==='search'?'results':state.page);
@@ -84,6 +88,14 @@ async function restoreRoute(entry,onRendered){
  state.query=normalizedSearchQuery(entry?.usedRoute?entry.query:params.get('q'));
  const view=params.get('view');state.page=entry?.usedRoute?entry.page:['saved','services','detail'].includes(view)?view:state.query||view==='results'?'search':'home';
  const source=entry?.usedRoute?entry.source:params.get('source');state.source=searchScope(state.kind,source).source;
+ state.retainedQuery=null;state.rateLimited=Boolean(entry?.usedRoute&&entry.rateLimited===true);
+ if(state.rateLimited){
+  state.live=[];state.providers=[];state.fetchedAt=null;state.partial=false;state.error='';state.requested=true;
+  const previousQuery=typeof entry.retainedQuery==='string'?normalizedSearchQuery(entry.retainedQuery):'';
+  const previousKey=searchRequestKey({...state,query:previousQuery});
+  const previous=previousQuery&&(lastSearchResult&&searchRequestKey(lastSearchResult)===previousKey?lastSearchResult:searchCache.get(previousKey));
+  if(previous){Object.assign(state,{live:previous.items,providers:previous.providers,fetchedAt:previous.fetchedAt,partial:previous.partial,retainedQuery:previousQuery});liveKey=previousKey;}
+ }
  if(entry?.usedRoute){state.filters={...defaults(),...entry.filters};state.sort=entry.sort||'recent';}
  Object.assign(state,locationFromHistory(entry));
  state.detailId=state.page==='detail'?String(entry?.detailId||params.get('item')||'').slice(0,512):'';
@@ -92,7 +104,7 @@ async function restoreRoute(entry,onRendered){
   const url=new URL(protectedSearchUrl({query:state.query,kind:state.kind,source:state.source}));url.searchParams.set('view','detail');url.searchParams.set('item',state.detailId);location.assign(url.href);return;
  }
  syncQueries();render();onRendered?.();
- if(state.page==='search'&&!REQUIRES_LOGIN_REDIRECT&&liveKey!==searchKey())await searchLive();
+ if(state.page==='search'&&!state.rateLimited&&!REQUIRES_LOGIN_REDIRECT&&liveKey!==searchKey())await searchLive();
  if(version!==routeVersion)return;
  window.scrollTo({top:restoreY,behavior:'auto'});routeScroll=restoreY;syncRoute();
  requestAnimationFrame(()=>{if(version===routeVersion)restoringScroll=false;});
@@ -105,19 +117,46 @@ function notify(message){$('#toast').textContent=message;$('#toast').classList.a
 function persist(){try{localStorage.setItem('used:saved',JSON.stringify([...state.saved]));localStorage.setItem('used:saved-records',JSON.stringify([...state.savedRecords.values()]));}catch{notify('저장 공간을 사용할 수 없어 이번 방문에서만 찜해요.');}}
 const data=()=>state.page==='saved'?[...state.savedRecords.values()]:state.live;
 const placeholder='./assets/product-placeholder.svg';
-const options=()=>({...state.filters,kind:state.kind,query:state.page==='saved'?'':state.query,source:state.source,region:state.region,coords:state.coords,radius:state.coords?state.radius:undefined,sort:state.sort});
+const options=()=>({...state.filters,kind:state.kind,query:state.page==='saved'?'':state.retainedQuery??state.query,source:state.source,region:state.region,coords:state.coords,radius:state.coords?state.radius:undefined,sort:state.sort});
+function rememberSearchResult(){
+ lastSearchResult={kind:state.kind,source:state.source,query:state.query,items:state.live,providers:state.providers,fetchedAt:state.fetchedAt,partial:state.partial};
+ state.retainedQuery=null;state.rateLimited=false;liveKey=searchKey();
+}
+function retainSearchResult(){
+ state.requested=true;state.rateLimited=true;state.error='';
+ const previous=lastSearchResult;
+ if(previous&&previous.kind===state.kind&&previous.source===state.source){
+  Object.assign(state,{live:previous.items,providers:previous.providers,fetchedAt:previous.fetchedAt,partial:previous.partial,retainedQuery:previous.query});
+  liveKey=searchRequestKey(previous);
+ }
+}
+function renderLimitNotice(){
+ clearTimeout(limitNoticeTimer);limitNoticeTimer=null;
+ const banner=$('#search-limit-notice'),notice=searchLimitNotice.current();
+ banner.hidden=state.page!=='search'||!notice.kind;
+ const retry=$('#retry-search');if(retry)retry.disabled=notice.kind==='blocked';
+ if(state.page!=='search'){$('#search-limit-announcement').textContent='';return;}
+ if(!notice.kind){lastAnnouncedLimit=null;$('#search-limit-announcement').textContent='';return;}
+ banner.dataset.kind=notice.kind;
+ $('#search-limit-message').textContent=notice.message;
+ $('#search-limit-dismiss').hidden=notice.kind!=='warning';
+ if(lastAnnouncedLimit!==notice.kind){$('#search-limit-announcement').textContent=notice.message;lastAnnouncedLimit=notice.kind;}
+ // Only this small notice is updated. Do not rebuild cards/history or search.
+ if(!document.hidden)limitNoticeTimer=setTimeout(renderLimitNotice,1000);
+}
 function cancelSearch(){requestController?.abort();requestController=null;requestVersion++;state.loading=false;activeSearchKey='';}
 async function searchLive({force=false}={}){
  const key=searchKey();
  if(state.loading&&activeSearchKey===key)return;
  cancelSearch();
  if(state.page!=='search'){render();return;}
- state.live=[];state.providers=[];state.fetchedAt=null;state.error='';state.partial=false;state.requested=false;
+ state.live=[];state.providers=[];state.fetchedAt=null;state.error='';state.partial=false;state.requested=false;state.retainedQuery=null;state.rateLimited=false;
  if(!state.query.trim()){render();return;}
  if(REQUIRES_LOGIN_REDIRECT&&state.query.trim()){location.assign(protectedSearchUrl({query:state.query,kind:state.kind,source:state.source}));return;}
  if(state.query.length>80){state.error='검색어는 80자 이내로 입력해 주세요.';render();return;}
  const cached=!force&&searchCache.get(key);
- if(cached){Object.assign(state,{live:cached.items,providers:cached.providers,fetchedAt:cached.fetchedAt,partial:cached.partial,requested:true,loading:false,error:''});liveKey=key;render();return;}
+ if(cached){Object.assign(state,{live:cached.items,providers:cached.providers,fetchedAt:cached.fetchedAt,partial:cached.partial,requested:true,loading:false,error:''});rememberSearchResult();render();return;}
+ if(searchLimitNotice.current().kind==='blocked'){retainSearchResult();render();return;}
  state.requested=true;state.loading=true;activeSearchKey=key;render();
  const controller=new AbortController();requestController=controller;const version=requestVersion;
  const timeout=setTimeout(()=>controller.abort(),25000);
@@ -126,6 +165,8 @@ async function searchLive({force=false}={}){
   const response=await fetch(url,{signal:controller.signal,headers:{Accept:'application/json'}});
   let payload=await response.json().catch(()=>null);
   if(version!==requestVersion)return;
+  searchLimitNotice.observe(response,payload);
+  if(response.status===429){retainSearchResult();return;}
   payload=await recoverEncar({payload,status:response.status,kind:state.kind,source:state.source,query:state.query,signal:controller.signal});
   if(version!==requestVersion)return;
   const scope=searchScope(state.kind,state.source);
@@ -136,16 +177,18 @@ async function searchLive({force=false}={}){
   state.live=payload.items.filter(item=>validateListing(item)&&isInSearchScope(item,scope));
   for(const item of state.live)if(state.saved.has(item.id))state.savedRecords.set(item.id,item);
   persist();
-  if(response.ok){searchCache.put(key,{items:state.live,providers:state.providers,fetchedAt:state.fetchedAt,partial:state.partial});}
+  rememberSearchResult();
+  if(response.ok||(response.status===502&&state.providers.some(provider=>provider.status==='ok'))){searchCache.put(key,{items:state.live,providers:state.providers,fetchedAt:state.fetchedAt,partial:state.partial});}
   if(state.providers.length&&!state.providers.some(p=>p.status==='ok'))state.error='선택한 서비스에서 매물을 가져오지 못했어요. 연결 상태를 확인하거나 원문 검색을 이용해 주세요.';
  }catch(error){
   if(version!==requestVersion)return;
   state.error=error.name==='AbortError'?'검색 시간이 길어지고 있어요. 다시 검색해 주세요.':error instanceof TypeError?'네트워크 또는 검색 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.':error.message;
- }finally{clearTimeout(timeout);if(version===requestVersion){state.loading=false;requestController=null;activeSearchKey='';liveKey=key;render();}}
+ }finally{clearTimeout(timeout);if(version===requestVersion){state.loading=false;requestController=null;activeSearchKey='';if(!state.rateLimited)liveKey=key;render();}}
 }
 function filterSummary(){const f=state.filters,v=[];if(state.source!=='all')v.push(sources[state.source].name);const place=selectedLocationText(state);if(place)v.push(place);if(state.sort!=='recent')v.push(sortLabels[state.sort]);for(const k of state.kind==='car'?['brand','fuel','status']:['category','condition','method','status'])if(f[k]!=='all')v.push(labels[k][f[k]]);if(f.minPrice!==''||f.maxPrice!=='')v.push(`${f.minPrice!==''?money(+f.minPrice):'0원'} ~ ${f.maxPrice!==''?money(+f.maxPrice):'제한 없음'}`);if(state.kind==='car'){if(f.minYear)v.push(`${f.minYear}년부터`);if(f.maxMileage)v.push(`${(+f.maxMileage).toLocaleString()}km 이하`);}return v;}
 function resetFilters(){const changedSource=state.source!=='all';state.filters=defaults();Object.assign(state,normalizeLocation());state.source='all';state.sort='recent';if(changedSource&&state.page==='search')searchLive();else render();}
 function render(){
+ renderLimitNotice();
  if(!Object.hasOwn(sortLabels,state.sort)||(!state.coords&&state.sort==='distance'))state.sort='recent';
 
  const home=state.page==='home',isDetail=state.page==='detail',isSaved=state.page==='saved',isMenu=isSaved||state.page==='services';
@@ -187,7 +230,7 @@ function render(){
  $('#search-status-title').textContent=state.loading?'여러 서비스에서 매물을 찾고 있어요':state.error?'검색 연결을 확인해 주세요':state.requested?'실제 검색 결과를 모았어요':'검색하면 실제 매물을 찾아요';
  $('#search-status-copy').textContent=state.loading?'접근 가능한 서비스의 공개 매물을 확인하고 있어요.':state.fetchedAt?`${when(state.fetchedAt)} 확인 · 판매 여부는 원문에서 확인해 주세요.`:'선택한 검색 범위의 서비스에서 매물을 찾아요.';
  const items=isSaved?data().filter(i=>state.saved.has(i.id)).reverse():filterListings(data(),options());
- $('#results-title').textContent=isSaved?'찜해 둔 매물':state.page==='services'?'중고 서비스, 한자리에':state.query?`‘${state.query}’ 검색 결과`:state.kind==='car'?'어떤 차를 찾고 있나요?':'어떤 물건을 찾고 있나요?';
+ $('#results-title').textContent=isSaved?'찜해 둔 매물':state.page==='services'?'중고 서비스, 한자리에':state.retainedQuery!==null?`이전 ‘${state.retainedQuery}’ 검색 결과`:state.query?`‘${state.query}’ 검색 결과`:state.kind==='car'?'어떤 차를 찾고 있나요?':'어떤 물건을 찾고 있나요?';
  $('#result-count').textContent=state.page==='services'||state.loading?'':`${items.length}개`;
  let scope=$('#saved-scope');if(!scope){scope=document.createElement('p');scope.id='saved-scope';scope.className='saved-scope';$('.results-heading').insertAdjacentElement('afterend',scope);}
  scope.hidden=isMenu||!state.requested;
@@ -200,6 +243,7 @@ function render(){
  $('#results').hidden=state.page==='services';$('#results').setAttribute('aria-busy',String(state.loading&&!isSaved));$('#results').innerHTML=state.loading&&!isSaved?skeleton():items.length?items.map(card).join(''):empty();
  $('#external').hidden=!(state.page==='services'||(state.requested&&!state.loading&&!isSaved));renderExternal();
  $('#results').querySelectorAll('img').forEach(img=>img.addEventListener('error',()=>{img.src=placeholder;},{once:true}));
+ const retry=$('#retry-search');if(retry)retry.disabled=searchLimitNotice.current().kind==='blocked';
  if(focusKey&&!active.isConnected){const candidates=[...document.querySelectorAll(`[data-${focusKey}]`)];const target=candidates.find(el=>el.dataset[focusKey]===focusValue)||(focusKey==='save'?(candidates[Math.min(focusIndex,candidates.length-1)]||$('#reset-results')||document.querySelector('[data-page="saved"]')):null);target?.focus({preventScroll:true});}
 }
 function carMeta(i){return [Number.isInteger(i.year)?`${i.year}년`:null,Number.isFinite(i.mileage)?`${(i.mileage/10000).toFixed(1)}만km`:null,labels.fuel[i.fuel]].filter(Boolean).join(' · ')||'차량 정보 없음';}
@@ -207,9 +251,10 @@ function card(i){const dist=state.coords&&Number.isFinite(i.lat)&&Number.isFinit
 function skeleton(){return `<div class="sr-only" role="status">실제 매물을 검색하고 있어요.</div>`+Array.from({length:4},()=>'<div class="skeleton-card" aria-hidden="true"><div class="skeleton-image"></div><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>').join('');}
 function empty(){
  const saved=state.page==='saved',error=!saved?state.error:'';
- const title=saved?'아직 찜한 매물이 없어요':!state.requested&&!error?'검색어를 입력해 주세요':error?'검색 결과를 가져오지 못했어요':'조건에 맞는 매물이 없어요';
- const copy=saved?'마음에 드는 매물의 하트를 눌러 모아 보세요.':error?esc(error):!state.requested?('상품명이나 차종을 검색하면<br>선택한 범위의 실제 매물을 모아 보여 드려요.'):`검색어나 필터를 바꿔 보세요.<br>연결된 서비스에서 가져온 결과만 검색해요.`;
- return `<div class="empty"><div class="empty-icon">${icon(saved?'heart':'search')}</div><h3>${title}</h3><p>${copy}</p>${error?'<button class="text-button" id="retry-search">다시 검색하기</button>':!saved&&data().length?'<button class="text-button" id="reset-results">필터 초기화</button>':''}</div>`;
+ const limited=!saved&&state.rateLimited;
+ const title=saved?'아직 찜한 매물이 없어요':limited?'새 검색이 잠시 제한되었어요':!state.requested&&!error?'검색어를 입력해 주세요':error?'검색 결과를 가져오지 못했어요':'조건에 맞는 매물이 없어요';
+ const copy=saved?'마음에 드는 매물의 하트를 눌러 모아 보세요.':limited?'대기 안내가 사라지면 다시 검색해 주세요.<br>아래 원문 서비스는 계속 이용할 수 있어요.':error?esc(error):!state.requested?('상품명이나 차종을 검색하면<br>선택한 범위의 실제 매물을 모아 보여 드려요.'):`검색어나 필터를 바꿔 보세요.<br>연결된 서비스에서 가져온 결과만 검색해요.`;
+ return `<div class="empty"><div class="empty-icon">${icon(saved?'heart':'search')}</div><h3>${title}</h3><p>${copy}</p>${error||limited?'<button class="text-button" id="retry-search">다시 검색하기</button>':!saved&&data().length?'<button class="text-button" id="reset-results">필터 초기화</button>':''}</div>`;
 }
 function renderExternal(){const browsing=state.page==='services',query=browsing?'':state.query;const keys=browsing?Object.keys(sources):state.source==='all'?sourceKeys():[state.source];$('#external-links').innerHTML=keys.map(k=>{const s=sources[k];return `<a class="service-link" href="${esc(s.url(query))}" target="_blank" rel="noopener noreferrer"><span class="service-letter" style="color:${s.color};background:${s.color}15">${s.letter}</span><span><strong>${s.name}</strong><small>${s.keyword&&query?`‘${esc(query)}’ 검색 결과 열기`:['encar','kb','kcar'].includes(k)?'차량 목록 열기':'서비스에서 찾아보기'}</small></span>${icon('arrow')}</a>`;}).join('');$('.external-note').textContent=browsing?'선택한 서비스의 원문 사이트로 이동해요.':state.kind==='car'?'차량 검색어와 필터는 이동한 사이트에서 다시 설정해 주세요. KB차차차는 서비스 홈으로 연결돼요.':'외부 사이트에서 필터를 다시 설정해 주세요. 당근은 서비스 홈으로 연결돼요.';}
 let carDetailCleanup=null,detailMountedKey='',sheetCleanup=null,sheetVersion=0;
@@ -381,6 +426,10 @@ $('#search-form').onsubmit=e=>{e.preventDefault();submitSearch($('#query').value
 $('#home-search-form').onsubmit=e=>{e.preventDefault();submitSearch($('#home-query').value,{reset:true});$('#home-query').blur();};
 $('#query').addEventListener('input',()=>{if(!$('#query').value){state.query='';searchLive();}});
 $('#filters-open').onclick=()=>filters();$('#location-open').onclick=locationSheet;
+$('#search-limit-dismiss').onclick=()=>{searchLimitNotice.dismiss();renderLimitNotice();};
+document.addEventListener('visibilitychange',renderLimitNotice);
+window.addEventListener('pagehide',()=>clearTimeout(limitNoticeTimer));
+window.addEventListener('pageshow',renderLimitNotice);
 $('#detail-back').onclick=detailBack;
 $('#results-back').onclick=()=>{if(routeHistory.isPending())return;if(history.state?.usedRoute&&routeDepth>0){routeScroll=window.scrollY;routeHistory.rememberScroll(routeScroll);syncRoute();if(routeHistory.back())return;}navigate('home',{replace:true});};
 $('#info-open').onclick=info;$('#install-open').onclick=install;$('#home-install').onclick=install;

@@ -47,9 +47,44 @@ test('API shedding and disabled responses never provide a browser-recovery contr
  const handler=createSearchHandler({searchCars:get,guard:createCostGuard({requestsPerWindow:1,enabled:()=>true})});
  assert.equal((await handler(request('q=BMW&kind=car'))).status,200);
  const limited=await handler(request('q=Audi&kind=car'));
- assert.equal(limited.status,429);assert.ok(Number(limited.headers.get('retry-after'))>0);assert.equal(limited.headers.get('cache-control'),'no-store');
+ assert.equal(limited.status,429);assert.ok(Number(limited.headers.get('retry-after'))>0);assert.equal(limited.headers.get('cache-control'),'private, no-store');
  const body=await limited.json();assert.equal(body.code,'API_RATE_LIMIT');assert.equal(body.providers,undefined);assert.equal(body.items,undefined);
  const disabled=createSearchHandler({searchCars:get,guard:createCostGuard({enabled:()=>false})});
  const stopped=await disabled(request('q=BMW&kind=car'));
  assert.equal(stopped.status,503);assert.equal((await stopped.json()).code,'API_DISABLED');assert.equal(calls,1);
+});
+
+test('search warnings are caller-specific private responses while ordinary listings keep shared CDN caching',async()=>{
+ let time=0,calls=0;
+ const guard=createCostGuard({enabled:()=>true,now:()=>time,identity:r=>r.headers.get('x-test-client')});
+ const handler=createSearchHandler({guard,searchGoods:async()=>{calls++;return {items:[item],providers:[{source:'daangn',status:'ok'}]};}});
+ const get=id=>handler(new Request('https://example.test/api/search?q='+encodeURIComponent('아이폰'),{headers:{'x-test-client':id}}));
+ for(let n=1;n<=9;n++){
+  const response=await get('frequent');assert.equal(response.status,200);
+  assert.match(response.headers.get('cache-control'),/s-maxage=180/);
+  assert.equal((await response.json()).rateLimit,undefined);
+ }
+ const warning=await get('frequent'),body=await warning.json();
+ assert.equal(warning.status,200);
+ assert.deepEqual(body.rateLimit,{scope:'ip-instance',limit:12,remaining:2,resetAfter:60});
+ for(const name of ['cache-control','cdn-cache-control','vercel-cdn-cache-control'])assert.match(warning.headers.get(name),/no-store/);
+ assert.equal(warning.headers.get('cache-control'),'private, no-store');
+ const other=await get('new');assert.equal((await other.json()).rateLimit,undefined);assert.match(other.headers.get('cache-control'),/s-maxage=180/);
+ await get('frequent');await get('frequent');time=1000;
+ const blocked=await get('frequent'),blockedBody=await blocked.json();
+ assert.equal(blocked.status,429);assert.equal(blocked.headers.get('retry-after'),'59');
+ assert.deepEqual(blockedBody.rateLimit,{scope:'ip-instance',limit:12,remaining:0,resetAfter:59});
+ assert.equal(blockedBody.items,undefined);
+ for(const name of ['cache-control','cdn-cache-control','vercel-cdn-cache-control'])assert.match(blocked.headers.get(name),/no-store/);
+ time=60000;
+ const reset=await get('frequent');assert.equal((await reset.json()).rateLimit,undefined);assert.match(reset.headers.get('cache-control'),/s-maxage=180/);
+ assert.equal(calls,1);
+});
+
+test('invalid input and disabled search do not mislabel overall service usage as a quota warning',async()=>{
+ const handler=createSearchHandler({guard:createCostGuard({enabled:()=>false}),searchGoods:async()=>{throw Error('must not call');}});
+ for(const [query,expected] of [['q=',400],['q=iphone',503]]){
+  const response=await handler(request(query));assert.equal(response.status,expected);
+  assert.equal((await response.json()).rateLimit,undefined);assert.equal(response.headers.get('cache-control'),'no-store');
+ }
 });

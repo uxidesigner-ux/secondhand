@@ -49,8 +49,26 @@ export function createCostGuard({ttlMs = 180_000, maxEntries = 64,
       bucket = {count: 0, reset: time + windowMs};
       clients.set(key, bucket);
     }
-    if (bucket.count >= requestsPerWindow) throw new CostGuardError('API_RATE_LIMIT', '요청이 많아요. 잠시 후 다시 시도해 주세요.', 429, Math.max(1, Math.ceil((bucket.reset - time) / 1000)));
+    if (bucket.count >= requestsPerWindow) {
+      const error = new CostGuardError('API_RATE_LIMIT', '요청이 많아요. 잠시 후 다시 시도해 주세요.', 429, Math.max(1, Math.ceil((bucket.reset - time) / 1000)));
+      // This is request-local bookkeeping, never part of the shared payload.
+      Object.defineProperty(error, 'rateSnapshot', {value:{count:bucket.count,reset:bucket.reset}});
+      throw error;
+    }
     bucket.count++;
+    return {count:bucket.count,reset:bucket.reset};
+  };
+  const rateLimit = snapshot => {
+    const remainingMs = snapshot.reset - now();
+    if (snapshot.count < Math.ceil(requestsPerWindow * .8) || remainingMs <= 0) return undefined;
+    return {scope:'ip-instance',limit:requestsPerWindow,
+      remaining:Math.max(0,requestsPerWindow-snapshot.count),resetAfter:Math.ceil(remainingMs/1000)};
+  };
+  const forCaller = (result, snapshot, includeRateLimit) => {
+    if (!includeRateLimit) return result;
+    // Decorate after shared storage/coalescing. A getter calculates the wait at
+    // serialization time, so a slow provider cannot extend an expired window.
+    return Object.defineProperty({...result}, 'rateLimit', {enumerable:true,get:()=>rateLimit(snapshot)});
   };
   const store = (key, result) => {
     if (result.status !== 200) return;
@@ -61,18 +79,26 @@ export function createCostGuard({ttlMs = 180_000, maxEntries = 64,
     cacheBytes += bytes;
   };
   return {
-    async run({request, key, load}) {
+    async run({request, key, load, includeRateLimit = false}) {
       if (!enabled()) throw new CostGuardError('API_DISABLED', '지금은 검색을 잠시 쉬고 있어요. 잠시 후 다시 시도해 주세요.', 503, 300);
-      const time = now();prune(time);limit(request, time);
+      const time = now();prune(time);
+      let snapshot;
+      try { snapshot = limit(request, time); }
+      catch (error) {
+        if (includeRateLimit && error.code === 'API_RATE_LIMIT') {
+          Object.defineProperty(error, 'rateLimit', {enumerable:true,get:()=>rateLimit(error.rateSnapshot)});
+        }
+        throw error;
+      }
       const cached = cache.get(key);
-      if (cached) return JSON.parse(cached.json);
-      if (inFlight.has(key)) return inFlight.get(key);
+      if (cached) return forCaller(JSON.parse(cached.json), snapshot, includeRateLimit);
+      if (inFlight.has(key)) return forCaller(await inFlight.get(key), snapshot, includeRateLimit);
       if (inFlight.size >= concurrency) throw new CostGuardError('API_BUSY', '검색 요청이 많아요. 잠시 후 다시 시도해 주세요.', 503, 10);
       // The shared operation owns its timeout. One caller disconnecting must
       // not cancel the same operation for other callers waiting on this key.
       const work = Promise.resolve().then(load).then(result => {store(key, result);return result;});
       inFlight.set(key, work);
-      try { return await work; } finally { inFlight.delete(key); }
+      try { return forCaller(await work, snapshot, includeRateLimit); } finally { inFlight.delete(key); }
     },
     // Aggregate counts only, useful for tests; no IPs, query text or payloads.
     stats: () => ({cacheEntries: cache.size, cacheBytes, clients: clients.size, inFlight: inFlight.size}),
@@ -101,6 +127,6 @@ export function createProviderGuard({now = Date.now, cooldownMs = 300_000, concu
 }
 
 export const guardFailure = error => ({
-  body: {code: error.code, error: error.message}, status: error.status,
+  body: {code: error.code, error: error.message, ...(error.rateLimit?{rateLimit:error.rateLimit}:{})}, status: error.status,
   headers: {'Retry-After': String(error.retryAfter)},
 });

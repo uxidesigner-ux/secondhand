@@ -3,6 +3,7 @@ import {createCostGuard, createProviderGuard, CostGuardError, guardFailure} from
 const allowedSources = {goods:['all','daangn','joongna','bunjang','other'],car:['all','encar','kb','kcar']};
 const headers = {'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','X-Content-Type-Options':'nosniff'};
 const json=(body,status=200,cache=false,extra={})=>Response.json(body,{status,headers:{...headers,'Cache-Control':cache?'public, max-age=0, s-maxage=180':'no-store',...extra}});
+const privateRateHeaders={'Cache-Control':'private, no-store','CDN-Cache-Control':'no-store','Vercel-CDN-Cache-Control':'no-store'};
 export function createSearchHandler({searchGoods,searchCars,guard=createCostGuard(),providerGuard=createProviderGuard()}) {
   return async request => {
     if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
@@ -17,7 +18,7 @@ export function createSearchHandler({searchGoods,searchCars,guard=createCostGuar
     try {
       // Normalized semantic keys prevent URL parameter ordering/encoding from
       // causing repeated upstream work. No arbitrary caller URLs are fetched.
-      const result=await guard.run({request,key:JSON.stringify([kind,source,query]),load:async()=>{
+      const result=await guard.run({request,key:JSON.stringify([kind,source,query]),includeRateLimit:true,load:async()=>{
         const result=await (kind==='car'?searchCars:searchGoods)({query,source,limit:30,signal:AbortSignal.timeout(18000),providerGuard});
         const seen=new Set();
         const valid=result.items.filter(i=>i.demo!==true&&validateListing(i)&&!seen.has(i.id)&&seen.add(i.id));
@@ -28,9 +29,10 @@ export function createSearchHandler({searchGoods,searchCars,guard=createCostGuar
         console.info(JSON.stringify({event:'search_complete',kind,source,counts:providers.map(p=>({source:p.source,status:p.status,count:p.count}))}));
         return {body:{query,kind,items,providers,fetchedAt:new Date().toISOString(),partial,limited:true,...(!ok?{error:'현재 원문 서비스에 연결하지 못했어요. 잠시 후 다시 검색해 주세요.'}:{})},status:ok?200:502};
       }});
-      return json(result.body,result.status,result.status===200);
+      const rateLimit=result.rateLimit;
+      return rateLimit?json({...result.body,rateLimit},result.status,false,privateRateHeaders):json(result.body,result.status,result.status===200);
     } catch(error) {
-      if(error instanceof CostGuardError){const failure=guardFailure(error);return json(failure.body,failure.status,false,failure.headers);}
+      if(error instanceof CostGuardError){const failure=guardFailure(error);return json(failure.body,failure.status,false,{...failure.headers,...(failure.body.rateLimit?privateRateHeaders:{})});}
       console.error('search_failed',error?.name||'Error');
       return json({error:'매물을 불러오지 못했어요. 잠시 후 다시 검색해 주세요.',items:[],providers:[],partial:true},502);
     }

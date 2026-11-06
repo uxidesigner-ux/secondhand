@@ -95,3 +95,60 @@ test('provider concurrent load is bounded and unknown providers never execute',a
   wait.resolve('done');assert.equal(await first,'done');assert.equal(calls,0);
   assert.equal(await guard.run('kb',async()=>7),7);
 });
+
+test('search quota metadata starts at 80 percent, blocks after the limit and expires with its window',async()=>{
+  let time=0,calls=0;
+  const guard=createCostGuard({enabled:()=>true,now:()=>time});
+  const run=()=>guard.run({request:request(),key:'same',includeRateLimit:true,load:async()=>success(++calls)});
+  for(let i=1;i<=9;i++)assert.equal((await run()).rateLimit,undefined);
+  const tenth=await run();
+  assert.deepEqual(tenth.rateLimit,{scope:'ip-instance',limit:12,remaining:2,resetAfter:60});
+  time=1250;
+  assert.equal(tenth.rateLimit.resetAfter,59);
+  assert.equal((await run()).rateLimit.remaining,1);
+  assert.equal((await run()).rateLimit.remaining,0);
+  await assert.rejects(run(),error=>{
+    assert.equal(error.code,'API_RATE_LIMIT');assert.equal(error.status,429);
+    assert.deepEqual(error.rateLimit,{scope:'ip-instance',limit:12,remaining:0,resetAfter:59});
+    assert.equal(error.retryAfter,59);return true;
+  });
+  time=60000;
+  assert.equal(tenth.rateLimit,undefined);
+  assert.equal((await run()).rateLimit,undefined);
+  assert.equal(calls,1);
+});
+
+test('shared memory and in-flight data never share one caller quota with another',async()=>{
+  let time=0,calls=0;
+  const guard=createCostGuard({enabled:()=>true,now:()=>time,identity:r=>r.headers.get('x-test-client')});
+  const run=(id,key='warm',load=async()=>success(++calls),includeRateLimit=true)=>guard.run({request:request({'x-test-client':id}),key,load,includeRateLimit});
+  for(let i=0;i<9;i++)await run('busy');
+  const wait=deferred();
+  const first=run('busy','shared',()=>{calls++;return wait.promise;});
+  const second=run('new','shared');
+  time=5000;wait.resolve(success('done'));
+  const [busy,other]=await Promise.all([first,second]);
+  assert.deepEqual(busy.rateLimit,{scope:'ip-instance',limit:12,remaining:2,resetAfter:55});
+  assert.equal(other.rateLimit,undefined);
+  assert.equal(busy.body.rateLimit,undefined);assert.equal(other.body.rateLimit,undefined);
+  assert.equal((await run('third','shared')).rateLimit,undefined);
+  assert.equal((await run('busy','shared',undefined,false)).rateLimit,undefined);
+  assert.equal(calls,2);
+});
+
+test('slow responses do not revive expired warnings and non-quota failures carry no quota',async()=>{
+  let time=0;
+  const guard=createCostGuard({enabled:()=>true,requestsPerWindow:1,now:()=>time});
+  const result=await guard.run({request:request(),key:'slow',includeRateLimit:true,load:async()=>{time=61000;return success('done');}});
+  assert.equal(result.rateLimit,undefined);
+  const disabled=createCostGuard({enabled:()=>false});
+  await assert.rejects(disabled.run({request:request(),key:'none',includeRateLimit:true,load:async()=>success('bad')}),error=>{
+    assert.equal(error.code,'API_DISABLED');assert.equal(error.rateLimit,undefined);return true;
+  });
+  const pending=deferred(),busy=createCostGuard({enabled:()=>true,requestsPerWindow:2,concurrency:1});
+  const first=busy.run({request:request(),key:'one',includeRateLimit:true,load:()=>pending.promise});
+  await assert.rejects(busy.run({request:request(),key:'two',includeRateLimit:true,load:async()=>success('bad')}),error=>{
+    assert.equal(error.code,'API_BUSY');assert.equal(error.rateLimit,undefined);return true;
+  });
+  pending.resolve(success('done'));await first;
+});

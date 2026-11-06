@@ -1,12 +1,12 @@
 {
   "name": "used-search",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
     "start": "python3 -m http.server 4173",
-    "check": "node --check src/app.js && node --check src/search.js && node --check api/search.js && node --check server/handler.mjs && node --check api/detail.js && node --check server/detail-handler.mjs && node --check server/providers/kb-detail.mjs && node --check server/providers/encar-detail.mjs && node --check server/providers/kcar-detail.mjs && node --check src/car-detail.js && node --check src/detail-route.js && node --check src/entry.js && node --check src/config.js && node --check src/providers/encar.js && node --check src/providers/encar-detail.js && node --check src/encar-fallback.js && node --check src/location-state.js && node --check src/location-lookup.js && node --check src/region-geocoder.js && node --check src/splash.js && node --check src/share.js && node --check src/route-history.js && node --check server/cost-guard.mjs && node --check server/public-api-policy.mjs && node --check src/search-cache.js && node --check src/search-scope.js && node --check src/recovery-guard.js && node --check sw.js",
+    "check": "node --check src/app.js && node --check src/search.js && node --check api/search.js && node --check server/handler.mjs && node --check api/detail.js && node --check server/detail-handler.mjs && node --check server/providers/kb-detail.mjs && node --check server/providers/encar-detail.mjs && node --check server/providers/kcar-detail.mjs && node --check src/car-detail.js && node --check src/detail-route.js && node --check src/entry.js && node --check src/config.js && node --check src/providers/encar.js && node --check src/providers/encar-detail.js && node --check src/encar-fallback.js && node --check src/location-state.js && node --check src/location-lookup.js && node --check src/region-geocoder.js && node --check src/splash.js && node --check src/share.js && node --check src/route-history.js && node --check server/cost-guard.mjs && node --check server/public-api-policy.mjs && node --check src/search-cache.js && node --check src/search-scope.js && node --check src/recovery-guard.js && node --check sw.js && node --check src/search-limit.js",
     "dev": "node server/dev.mjs"
   }
 }
