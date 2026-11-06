@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {shareService} from '../src/share.js';
 
-const url='https://used-search-api.vercel.app/';
+const url='https://uxidesigner-ux.github.io/secondhand/share/';
 
 test('native sharing passes only the fixed service entrance and preserves its receiver',async()=>{
   const browser={
     location:{href:'https://used-search-api.vercel.app/?token=private&lat=37.5#private'},
     async share(data){
       assert.equal(this,browser);
-      assert.deepEqual(data,{title:'USED',text:'좋은매물, 한곳에서',url});
+      assert.deepEqual(data,{title:'USED',text:'원하는 제품, 일단 찾아봐',url});
     },
     clipboard:{writeText(){assert.fail('Successful native sharing must not copy');}},
   };
