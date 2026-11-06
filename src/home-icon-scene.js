@@ -5,29 +5,48 @@ export function createIconScene(T, model, kind) {
   scene.add(turntable);
   const phone = kind === 'goods';
   const radius = phone ? 1.16 : 1.87;
-  const top = new T.MeshStandardMaterial({color: '#f8fbff', roughness: .43, metalness: .08});
-  const edge = new T.MeshStandardMaterial({color: '#c9d9ec', roughness: .4, metalness: .15});
-  const base = new T.Mesh(new T.CylinderGeometry(radius, radius, .10, 64), [edge, top, edge]);
-  base.position.y = .055;
+  // A continuous rounded profile catches broad highlights without a hard rim.
+  const porcelain = new T.MeshStandardMaterial({color: '#f1eee8', roughness: .84, metalness: 0});
+  const profile = [[0,.012],[radius-.065,.012],[radius-.028,.025],
+    [radius-.006,.05],[radius,.082],[radius-.009,.113],
+    [radius-.032,.137],[radius-.066,.145],[0,.145]];
+  const base = new T.Mesh(new T.LatheGeometry(profile.map(([r,y])=>new T.Vector2(r,y)),96),porcelain);
+  base.name = 'rounded-clay-plinth';
+  base.castShadow = true; base.receiveShadow = true;
   turntable.add(base);
-  const ring = new T.Mesh(new T.TorusGeometry(radius - .025, .015, 6, 64), edge);
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = .11;
-  turntable.add(ring);
-  // A small marker makes the platform's continuous rotation visible as well.
-  const marker = new T.Mesh(new T.BoxGeometry(.17, .008, .055),
-    new T.MeshStandardMaterial({color: '#3182f6', roughness: .4}));
-  marker.position.set(0, .112, radius - .12);
-  turntable.add(marker);
-  model.position.y = .12;
+  model.position.y = .15;
   turntable.add(model);
   const initialAngle = phone ? 3.35 : -.12;
   turntable.rotation.y = initialAngle;
-  scene.add(new T.HemisphereLight('#ffffff', '#8b9cb5', 2.6));
-  const key = new T.DirectionalLight('#fff8ef', 3.2);
-  key.position.set(-3, 7, 5); scene.add(key);
-  const fill = new T.DirectionalLight('#d9edff', 1.7);
-  fill.position.set(4, 3, -5); scene.add(fill);
+
+  // A small transparent contact gradient anchors the plinth itself. Actual
+  // light-space shadows above it ground the phone and car on the plinth.
+  const size=64, pixels=new Uint8Array(size*size*4);
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const distance=Math.hypot((x+.5-size/2)/(size/2),(y+.5-size/2)/(size/2));
+    const falloff=Math.pow(Math.max(0,1-distance*distance),2.6);
+    const index=(y*size+x)*4;
+    pixels.set([104,96,83,Math.round(falloff*66)],index);
+  }
+  const texture=new T.DataTexture(pixels,size,size,T.RGBAFormat);
+  texture.needsUpdate=true; texture.magFilter=T.LinearFilter; texture.minFilter=T.LinearFilter;
+  const ground=new T.Mesh(new T.CircleGeometry(radius*1.14,64),
+    new T.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,toneMapped:false}));
+  ground.name='ground-contact-shadow';ground.userData.offlineSkip=true;
+  ground.rotation.x=-Math.PI/2;ground.position.y=.001;scene.add(ground);
+
+  scene.add(new T.HemisphereLight('#fffdf8','#c7c0b7',1.9));
+  const key = new T.DirectionalLight('#fff9ee',3.1);
+  key.name='studio-key';key.position.set(-3.5,6,5);
+  key.target.position.set(0,1,0);scene.add(key.target);
+  key.castShadow=true;key.shadow.mapSize.set(512,512);
+  Object.assign(key.shadow.camera,{left:-3,right:3,top:3.5,bottom:-2.5,near:.1,far:18});
+  key.shadow.camera.updateProjectionMatrix();
+  key.shadow.bias=-.00015;key.shadow.normalBias=.025;
+  key.shadow.radius=4;key.shadow.blurSamples=8;
+  scene.add(key);
+  const fill = new T.DirectionalLight('#ffffff',1.15);
+  fill.position.set(4,4,-4);scene.add(fill);
   const camera = new T.OrthographicCamera(-2.4, 2.4, 1.8, -1.8, .1, 40);
   camera.position.set(5, 4.1, 7);
   camera.lookAt(0, phone ? 1.38 : .94, 0);
@@ -66,7 +85,8 @@ export function batchModel(T, model) {
       for (const attribute of attributes) { values.set(attribute.array, offset); offset += attribute.array.length; }
       geometry.setAttribute(name, new T.BufferAttribute(values, attributes[0].itemSize));
     }
-    group.add(new T.Mesh(geometry, material));
+    const mesh=new T.Mesh(geometry,material);
+    mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);
     geometries.forEach(item => item.dispose());
   }
   originalGeometries.forEach(geometry => geometry.dispose());

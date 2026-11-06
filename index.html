@@ -20,8 +20,8 @@
 <meta name="twitter:description" content="원하는 제품, 일단 찾아봐">
 <meta name="twitter:image" content="https://uxidesigner-ux.github.io/secondhand/assets/share/used-share-1.5.0.png">
 <meta name="twitter:image:alt" content="흰 배경 중앙의 USED 파란 도트 로고와 하단 문구 원하는 제품, 일단 찾아봐">
-<style>html.booting .app{visibility:hidden}</style><link rel="stylesheet" href="./src/splash.css?v=1.7.0">
-<title>USED — 좋은매물 한곳에서</title><link rel="icon" href="./assets/favicon-1.2.0.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./assets/apple-touch-icon-1.2.0.png"><link rel="manifest" href="./manifest.webmanifest" crossorigin="use-credentials"><link rel="stylesheet" href="./src/styles.css?v=1.7.0"><link rel="stylesheet" href="./src/car-detail.css?v=1.7.0">
+<style>html.booting .app{visibility:hidden}</style><link rel="stylesheet" href="./src/splash.css?v=1.7.1">
+<title>USED — 좋은매물 한곳에서</title><link rel="icon" href="./assets/favicon-1.2.0.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="./assets/apple-touch-icon-1.2.0.png"><link rel="manifest" href="./manifest.webmanifest" crossorigin="use-credentials"><link rel="stylesheet" href="./src/styles.css?v=1.7.1"><link rel="stylesheet" href="./src/car-detail.css?v=1.7.1">
 </head>
 <body>
 <div id="startup-splash" class="startup-splash"><div class="startup-content"><div class="startup-wordmark" aria-label="USED">USED<i aria-hidden="true"></i></div><p class="startup-message" id="startup-message" role="status">좋은 발견을 준비하고 있어요</p><div class="startup-progress" id="startup-progress" role="progressbar" aria-label="USED 시작 준비" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="startup-bar"></span></div><p class="startup-number" aria-hidden="true"><span id="startup-percent">0</span>%</p><a class="startup-retry" href="">다시 시작</a></div></div>
@@ -42,8 +42,8 @@
 <section id="home-screen" aria-label="홈">
 <section class="intro home-intro"><h1>좋은매물<br>한곳에서</h1></section>
 <div class="home-kind-tabs" role="group" aria-label="검색 종류">
-<button type="button" data-kind="goods" class="active" aria-pressed="true"><span class="kind-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"/></svg></span><span class="home-kind-icon goods-icon" data-home-model="goods" aria-hidden="true"><img src="./assets/home-icons/phone.webp" width="560" height="416" alt="" decoding="async"></span><span>중고물품</span></button>
-<button type="button" data-kind="car" aria-pressed="false"><span class="kind-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"/></svg></span><span class="home-kind-icon car-icon" data-home-model="car" aria-hidden="true"><img src="./assets/home-icons/ray.webp" width="560" height="416" alt="" decoding="async"></span><span>중고차</span></button>
+<button type="button" data-kind="goods" class="active" aria-pressed="true"><span class="kind-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"/></svg></span><span class="home-kind-icon goods-icon" data-home-model="goods" aria-hidden="true"><img src="./assets/home-icons/phone.webp?v=1.7.1" width="560" height="416" alt="" decoding="async"></span><span>중고물품</span></button>
+<button type="button" data-kind="car" aria-pressed="false"><span class="kind-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"/></svg></span><span class="home-kind-icon car-icon" data-home-model="car" aria-hidden="true"><img src="./assets/home-icons/ray.webp?v=1.7.1" width="560" height="416" alt="" decoding="async"></span><span>중고차</span></button>
 </div>
 <form id="home-search-form" class="search-box home-search" role="search"><span data-icon="search"></span><input id="home-query" type="search" maxlength="80" placeholder="찾는 물건이 있나요?" aria-label="홈 검색어" autocomplete="off" enterkeyhint="search"><button type="submit" aria-label="검색"><span data-icon="arrow"></span></button></form>
 <div class="suggestions" id="suggestions"></div>
@@ -58,7 +58,7 @@
 <section id="external" class="external" hidden><div class="external-title"><span data-icon="globe"></span><div><h3>각 서비스에서 바로 찾아보기</h3><p>원문 사이트에서 최신 매물을 확인해 보세요.</p></div></div><div id="external-links"></div><p class="external-note">선택한 필터는 USED 내부 검색에 적용돼요. 외부 사이트에서는 필터를 다시 설정해 주세요.</p></section>
 </section>
 <div class="footnote"><span class="brand-small">USED</span><p>새 주인을 만나면, 또 새로운 시작.<br>거래와 결제는 제공하지 않아요.</p><button id="install-open">홈 화면에 추가하기<span data-icon="arrow"></span></button></div>
-<footer class="deployment-footer" aria-label="배포 정보"><span id="deployment-version">버전 1.7.0</span><button id="app-refresh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.1M4.4 14.8a8.3 8.3 0 0 0 13.5 3.1"/></svg><span>새로고침</span></button></footer>
+<footer class="deployment-footer" aria-label="배포 정보"><span id="deployment-version">버전 1.7.1</span><button id="app-refresh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1a8.3 8.3 0 0 1 13.5 3.1M4.4 14.8a8.3 8.3 0 0 0 13.5 3.1"/></svg><span>새로고침</span></button></footer>
 </main>
 <div id="detail-actions" class="detail-page-actions" aria-label="매물 상세 작업" hidden></div>
 <nav class="bottom-nav" aria-label="주 메뉴">
@@ -68,5 +68,5 @@
 </nav>
 </div>
 <dialog id="sheet" aria-labelledby="sheet-title"><div class="sheet-handle"></div><div class="sheet-header"><h2 id="sheet-title"></h2><button id="sheet-close" class="icon-button" aria-label="닫기"><span data-icon="close"></span></button></div><div id="sheet-body"></div><div id="sheet-footer"></div></dialog>
-<div id="toast" role="status"></div><script type="module" src="./src/entry.js?v=1.7.0"></script>
+<div id="toast" role="status"></div><script type="module" src="./src/entry.js?v=1.7.1"></script>
 </body></html>

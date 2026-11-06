@@ -1,8 +1,8 @@
-import {createSplash} from './splash.js?v=1.7.0';
+import {createSplash} from './splash.js?v=1.7.1';
 
 const splash=createSplash();
 try {
-const {getCanonicalRedirect}=await import('./config.js?v=1.7.0');
+const {getCanonicalRedirect}=await import('./config.js?v=1.7.1');
 splash.advance(25);
 const destination=getCanonicalRedirect(location.href);
 if(destination){
@@ -28,12 +28,12 @@ if(destination){
   location.replace(destination);
 }else{
   splash.advance(40);
-  const app=await import('./app.js?v=1.7.0');
+  const app=await import('./app.js?v=1.7.1');
   await app.appReady;
   splash.advance(90);
   await splash.finish();
   // Decorative models load independently; a graphics failure cannot fail boot.
-  void import('./home-icons.js?v=1.7.0').then(module=>module.initHomeIcons()).catch(()=>{});
+  void import('./home-icons.js?v=1.7.1').then(module=>module.initHomeIcons()).catch(()=>{});
 }
 }catch(error){
   splash.fail();

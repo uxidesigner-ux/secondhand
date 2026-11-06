@@ -8,26 +8,26 @@ function target(extra={}) {
  return {...extra,addEventListener(type,callback){listeners.set(type,callback);},
   emit(type,event={}){listeners.get(type)?.(event);}};
 }
-async function setup({reduced=false,hidden=false,documentHidden=false,webglFails=false}={}) {
+async function setup({reduced=false,hidden=false,documentHidden=false,webglFails=false,selected='goods'}={}) {
  const home={hidden},motion=target({matches:reduced}),document=target({hidden:documentHidden});
  const slots=['goods','car'].map(kind=>{
   const classes=new Set();
   return {dataset:{homeModel:kind},clientWidth:140,clientHeight:104,
    classList:{add:name=>classes.add(name),remove:name=>classes.delete(name),contains:name=>classes.has(name)},
-   parentElement:{parentElement:{}},append(canvas){this.canvas=canvas;}};
+   parentElement:{parentElement:{},pressed:kind===selected?'true':'false',getAttribute(name){return name==='aria-pressed'?this.pressed:null;}},append(canvas){this.canvas=canvas;}};
  });
  document.getElementById=()=>home;document.querySelectorAll=()=>slots;
  const renderers=[],items=[],imports=[],frames=new Map();let nextFrame=0,mutation,intersection,resize;
  class WebGLRenderer {
-  constructor(){if(webglFails)throw Error('WebGL unavailable');this.domElement=target({setAttribute(){},remove(){this.removed=true;}});this.renders=0;renderers.push(this);}
+  constructor(){if(webglFails)throw Error('WebGL unavailable');this.domElement=target({setAttribute(){},remove(){this.removed=true;}});this.renders=0;this.shadowMap={};this.shadowUpdates=0;renderers.push(this);}
   setPixelRatio(value){this.pixelRatio=value;}
-  setClearColor(){} setSize(){} render(){this.renders++;} dispose(){this.disposed=true;}
+  setClearColor(){} setSize(){} render(){this.renders++;if(this.shadowMap.needsUpdate)this.shadowUpdates++;this.shadowMap.needsUpdate=false;} dispose(){this.disposed=true;}
  }
  class MutationObserver {constructor(callback){mutation=callback;}observe(){}}
  class IntersectionObserver {constructor(callback){intersection=callback;}observe(){}}
  class ResizeObserver {constructor(callback){resize=callback;}observe(){}}
  const window=target({matchMedia:()=>motion,devicePixelRatio:3,IntersectionObserver,ResizeObserver});
- const modules={WebGLRenderer,SRGBColorSpace:'srgb',ACESFilmicToneMapping:'aces'};
+ const modules={WebGLRenderer,SRGBColorSpace:'srgb',ACESFilmicToneMapping:'aces',VSMShadowMap:'vsm'};
  const factories={createPhone:()=>({}),createRay:()=>({})};
  const scenes={batchModel:(_T,model)=>model,createIconScene:(_T,_model,kind)=>{
   const item={scene:{},camera:{},turntable:{rotation:{y:0}},initialAngle:kind==='goods'?3.35:-.12,resizeCamera(){}};
@@ -43,7 +43,8 @@ async function setup({reduced=false,hidden=false,documentHidden=false,webglFails
  const tick=time=>{const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback(time));};
  await settle();
  return {home,motion,document,window,slots,renderers,items,imports,frames,tick,settle,
-  mutation:()=>mutation(),intersection:value=>intersection([{isIntersecting:value}]),resize:()=>resize()};
+  mutation:()=>mutation([{attributeName:'hidden'}]),intersection:value=>intersection([{isIntersecting:value}]),resize:()=>resize(),
+  select(kind){for(const slot of slots)slot.parentElement.pressed=slot.dataset.homeModel===kind?'true':'false';mutation([{attributeName:'aria-pressed'}]);}};
 }
 
 test('reduced motion keeps posters and avoids downloading or constructing WebGL',async()=>{
@@ -52,6 +53,7 @@ test('reduced motion keeps posters and avoids downloading or constructing WebGL'
  app.motion.matches=false;app.motion.emit('change');await app.settle();
  assert.equal(app.imports.length,3);assert.equal(app.renderers.length,2);assert.equal(app.frames.size,1);
  assert.ok(app.renderers.every(renderer=>renderer.pixelRatio===2));
+ assert.ok(app.renderers.every(renderer=>renderer.shadowMap.enabled&&renderer.shadowMap.type==='vsm'&&!renderer.shadowMap.autoUpdate));
  assert.ok(app.slots.every(slot=>slot.classList.contains('model-ready')));
 });
 
@@ -77,6 +79,7 @@ test('loading is deferred off home and animation stops while hidden or outside v
 test('turntable advances a full revolution in twelve active seconds and limits draw frequency',async()=>{
  const app=await setup();app.tick(1000);
  const start=app.items[0].turntable.rotation.y,draws=app.renderers[0].renders;
+ const stillAngle=app.items[1].turntable.rotation.y,stillDraws=app.renderers[1].renders,stillShadows=app.renderers[1].shadowUpdates;
  // A stable 20 Hz schedule verifies elapsed-time rotation independently of RAF.
  for(let i=1;i<=120;i++)app.tick(1000+i*50);
  assert.ok(Math.abs(app.items[0].turntable.rotation.y-start-Math.PI)<1e-8);
@@ -87,6 +90,50 @@ test('turntable advances a full revolution in twelve active seconds and limits d
  const count=app.renderers[0].renders;
  for(let i=1;i<=100;i++)app.tick(13000+i);
  assert.ok(app.renderers[0].renders-count<=3,'fast RAF callbacks must not trigger unbounded draws');
+ assert.equal(app.items[1].turntable.rotation.y,stillAngle,'unselected model must not rotate');
+ assert.equal(app.renderers[1].renders,stillDraws,'unselected model must not render on RAF');
+ assert.equal(app.renderers[1].shadowUpdates,stillShadows,'unselected shadows must not update on RAF');
+});
+
+test('selection switches rotation immediately and preserves each model angle while unselected',async()=>{
+ const app=await setup();
+ assert.deepEqual(app.renderers.map(renderer=>renderer.renders),[1,1],'both scenes get one initial static render');
+ app.tick(1000);app.tick(1050);
+ const phoneAngle=app.items[0].turntable.rotation.y,phoneDraws=app.renderers[0].renders;
+ const carAngle=app.items[1].turntable.rotation.y;
+ app.select('car');app.tick(1100);app.tick(1150);
+ assert.equal(app.items[0].turntable.rotation.y,phoneAngle);
+ assert.equal(app.renderers[0].renders,phoneDraws);
+ assert.ok(app.items[1].turntable.rotation.y>carAngle);
+ const stoppedCarAngle=app.items[1].turntable.rotation.y,carDraws=app.renderers[1].renders;
+ app.select('goods');app.tick(20000);
+ assert.equal(app.items[0].turntable.rotation.y,phoneAngle,'resumption must not catch up hidden time');
+ app.tick(20050);assert.ok(app.items[0].turntable.rotation.y>phoneAngle);
+ assert.equal(app.items[1].turntable.rotation.y,stoppedCarAngle);
+ assert.equal(app.renderers[1].renders,carDraws);
+ assert.equal(app.frames.size,1);
+});
+
+test('initial car selection rotates only the car and no selection stops the loop',async()=>{
+ const app=await setup({selected:'car'});
+ const phoneAngle=app.items[0].turntable.rotation.y,phoneDraws=app.renderers[0].renders;
+ app.tick(1000);app.tick(1050);
+ assert.equal(app.items[0].turntable.rotation.y,phoneAngle);assert.equal(app.renderers[0].renders,phoneDraws);
+ assert.ok(app.items[1].turntable.rotation.y>app.items[1].initialAngle);
+ app.select(null);assert.equal(app.frames.size,0);
+ const counts=app.renderers.map(renderer=>renderer.renders);app.tick(90000);
+ assert.deepEqual(app.renderers.map(renderer=>renderer.renders),counts);
+ const unselected=await setup({selected:null});assert.equal(unselected.frames.size,0);
+ assert.deepEqual(unselected.renderers.map(renderer=>renderer.renders),[1,1]);
+});
+
+test('repeating the same selected state preserves the current frame and rotation phase',async()=>{
+ const app=await setup();app.tick(1000);app.tick(1050);
+ const angle=app.items[0].turntable.rotation.y,frame=[...app.frames.keys()][0];
+ app.select('goods');
+ assert.equal([...app.frames.keys()][0],frame);
+ app.tick(1100);
+ assert.ok(Math.abs(app.items[0].turntable.rotation.y-angle-Math.PI*2*50/12000)<1e-8);
 });
 
 test('changing reduced motion on an existing scene returns to its static angle and stops RAF',async()=>{

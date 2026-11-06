@@ -182,8 +182,6 @@ h2 { font-size: var(--font-subheading); line-height: 1.45; }
 .home-kind-icon canvas { visibility: hidden; }
 .home-kind-icon.model-ready canvas { visibility: visible; }
 .home-kind-icon.model-ready img { visibility: hidden; }
-.home-kind-icon.model-ready::before { content: ''; position: absolute; bottom: 5px; left: 14%; width: 72%; height: 9px; border-radius: 50%; background: #6885a230; filter: blur(4px); }
-.goods-icon.model-ready::before { left: 27%; width: 46%; bottom: 7px; }
 .kind-check { position: absolute; right: 12px; top: 12px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #3182f6; color: #fff; opacity: 0; }
 .kind-check svg { width: 14px; height: 14px; stroke-width: 2.5; }
 .active .kind-check { opacity: 1; }

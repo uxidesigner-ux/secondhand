@@ -6,22 +6,26 @@ export function initHomeIcons() {
   const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const lostContexts = new Set();
   let scenes = [], loading = false, failed = false, frame = 0, lastFrame = 0;
-  let angle = 0, inViewport = true, pageActive = true;
+  let inViewport = true, pageActive = true, runningItem = null;
   const visible = () => pageActive && !home.hidden && !document.hidden && inViewport;
-  const animated = () => !failed && visible() && !motion.matches && scenes.length > 0;
-  const stop = () => { cancelAnimationFrame(frame); frame = 0; lastFrame = 0; };
-  function draw() {
-    for (const item of scenes) {
-      item.turntable.rotation.y = item.initialAngle + (motion.matches ? 0 : angle);
+  const selectedItem = () => scenes.find(item => item.slot.parentElement.getAttribute('aria-pressed') === 'true');
+  const animated = () => !failed && visible() && !motion.matches && Boolean(selectedItem());
+  const stop = () => { cancelAnimationFrame(frame); frame = 0; lastFrame = 0; runningItem = null; };
+  function draw(items = scenes) {
+    for (const item of items) {
+      item.turntable.rotation.y = item.initialAngle + (motion.matches ? 0 : item.angle);
+      item.renderer.shadowMap.needsUpdate = true;
       item.renderer.render(item.scene, item.camera);
     }
   }
   function tick(time) {
     frame = 0;
     if (!animated()) { lastFrame = 0; return; }
+    const item = selectedItem();
+    if (runningItem !== item) { runningItem = item; lastFrame = 0; }
     if (!lastFrame || time - lastFrame >= 1000 / 30) {
-      if (lastFrame) angle = (angle + Math.min(time - lastFrame, 100) * Math.PI * 2 / 12000) % (Math.PI * 2);
-      lastFrame = time; draw();
+      if (lastFrame) item.angle = (item.angle + Math.min(time - lastFrame, 100) * Math.PI * 2 / 12000) % (Math.PI * 2);
+      lastFrame = time; draw([item]);
     }
     frame = requestAnimationFrame(tick);
   }
@@ -41,7 +45,7 @@ export function initHomeIcons() {
     try {
       const [T, models, {createIconScene, batchModel}] = await Promise.all([
         import('../assets/vendor/three-0.170.0.min.js'),
-        import('./home-models.js?v=1.7.0'), import('./home-icon-scene.js?v=1.7.0'),
+        import('./home-models.js?v=1.7.1'), import('./home-icon-scene.js?v=1.7.1'),
       ]);
       for (const slot of slots) {
         const renderer = new T.WebGLRenderer({alpha: true, antialias: true, powerPreference: 'low-power'});
@@ -49,10 +53,13 @@ export function initHomeIcons() {
         renderer.setClearColor(0x000000, 0);
         renderer.outputColorSpace = T.SRGBColorSpace;
         renderer.toneMapping = T.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.05;
+        renderer.toneMappingExposure = .95;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = T.VSMShadowMap;
+        renderer.shadowMap.autoUpdate = false;
         const kind = slot.dataset.homeModel;
         const model = batchModel(T, kind === 'goods' ? models.createPhone(T) : models.createRay(T));
-        const item = {...createIconScene(T, model, kind), slot, renderer};
+        const item = {...createIconScene(T, model, kind), slot, renderer, angle: 0};
         scenes.push(item);
         const canvas = renderer.domElement;
         canvas.setAttribute('aria-hidden', 'true');
@@ -69,7 +76,7 @@ export function initHomeIcons() {
         });
         slot.append(canvas);
       }
-      resize(); draw();
+      resize();
       slots.forEach(slot => slot.classList.add('model-ready'));
     } catch {
       failed = true;
@@ -78,16 +85,19 @@ export function initHomeIcons() {
       slots.forEach(slot => slot.classList.remove('model-ready'));
       // Generated posters remain visible on browsers without WebGL.
     } finally { loading = false; }
-    sync();
+    sync({redraw: false});
   }
-  function sync() {
-    stop();
-    if (failed || !visible()) return;
+  function sync({redraw = true} = {}) {
+    if (failed || !visible()) { stop(); return; }
     if (!scenes.length) { void load(); return; }
-    resize();
-    if (animated()) frame = requestAnimationFrame(tick);
+    if (redraw) resize();
+    if (!animated()) { stop(); return; }
+    const selected = selectedItem();
+    if (runningItem !== selected) { stop(); runningItem = selected; }
+    if (!frame) frame = requestAnimationFrame(tick);
   }
-  new MutationObserver(sync).observe(home, {attributes: true, attributeFilter: ['hidden']});
+  new MutationObserver(records => sync({redraw: records.some(record => record.attributeName === 'hidden')}))
+    .observe(home, {attributes: true, subtree: true, attributeFilter: ['hidden', 'aria-pressed']});
   if ('IntersectionObserver' in window) new IntersectionObserver(entries => {
     inViewport = entries.some(entry => entry.isIntersecting); sync();
   }).observe(slots[0].parentElement.parentElement);
