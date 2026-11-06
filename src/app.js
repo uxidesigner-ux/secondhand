@@ -1,14 +1,14 @@
-import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.4.0';
-import {locateCurrentRegion} from './location-lookup.js?v=1.4.0';
-import {lookupRegionName} from './region-geocoder.js?v=1.4.0';
-import {initRefresh} from './refresh.js?v=1.4.0';
-import {shareService} from './share.js?v=1.4.0';
-import {mountCarDetail} from './car-detail.js?v=1.4.0';
+import {normalizeLocation,locationFromHistory,locationSnapshot,locationText as selectedLocationText} from './location-state.js?v=1.4.1';
+import {locateCurrentRegion} from './location-lookup.js?v=1.4.1';
+import {lookupRegionName} from './region-geocoder.js?v=1.4.1';
+import {initRefresh} from './refresh.js?v=1.4.1';
+import {shareService} from './share.js?v=1.4.1';
+import {mountCarDetail} from './car-detail.js?v=1.4.1';
 import {resolveDetailItem} from './detail-route.js';
 import {createRouteHistory} from './route-history.js';
-import {recoverEncar} from './encar-fallback.js?v=1.4.0';
+import {recoverEncar} from './encar-fallback.js?v=1.4.1';
 import {filterListings, distanceKm, validateListing} from './search.js';
-import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.4.0';
+import {SEARCH_API_URL,REQUIRES_LOGIN_REDIRECT,PROTECTED_SEARCH_URL,protectedSearchUrl} from './config.js?v=1.4.1';
 const installRequested=new URLSearchParams(location.search).get('install')==='1';
 const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const $=s=>document.querySelector(s);
@@ -21,6 +21,7 @@ const when=value=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLo
 const known=(dictionary,key)=>dictionary[key]||'정보 없음';
 const sources={daangn:{name:'당근',letter:'당',color:'#ff7e36',url:()=> 'https://www.daangn.com/kr/',keyword:false},joongna:{name:'중고나라',letter:'중',color:'#10ae83',url:q=>'https://web.joongna.com/search/'+encodeURIComponent(q),keyword:true},bunjang:{name:'번개장터',letter:'번',color:'#f45458',url:q=>'https://m.bunjang.co.kr/search/products?q='+encodeURIComponent(q),keyword:true},other:{name:'헬로마켓',letter:'H',color:'#5785d5',url:q=>'https://www.hellomarket.com/search?q='+encodeURIComponent(q),keyword:true},encar:{name:'엔카',letter:'E',color:'#e53835',url:()=> 'https://car.encar.com/list/car',keyword:false},kb:{name:'KB차차차',letter:'KB',color:'#c99813',url:()=> 'https://www.kbchachacha.com/',keyword:false},kcar:{name:'K Car',letter:'K',color:'#bc1932',url:()=> 'https://www.kcar.com/bc/search',keyword:false}};
 const sourceKeys=()=>state.kind==='car'?['encar','kb','kcar']:['daangn','joongna','bunjang','other'];
+const sourceLogos={daangn:'daangn.svg',joongna:'joongna.svg',bunjang:'bunjang.svg',other:'hellomarket.svg',encar:'encar.png',kb:'kb.png',kcar:'kcar.svg'};
 const labels={category:{all:'전체',digital:'디지털·가전',fashion:'패션·잡화',home:'가구·생활',sports:'스포츠·레저',hobby:'취미·도서'},condition:{all:'전체',new:'새 상품', 'like-new':'거의 새것',used:'사용감 있음'},method:{all:'전체',direct:'직거래',shipping:'택배거래'},status:{all:'전체',selling:'판매 중',reserved:'예약 중',sold:'판매 완료'},fuel:{all:'전체',gasoline:'가솔린',diesel:'디젤',hybrid:'하이브리드',electric:'전기',lpg:'LPG'},brand:{all:'전체',현대:'현대',기아:'기아',BMW:'BMW',벤츠:'벤츠',테슬라:'테슬라'}};
 const defaults=()=>({category:'all',minPrice:'',maxPrice:'',condition:'all',method:'all',status:'all',brand:'all',minYear:'',maxMileage:'',fuel:'all'});
 function read(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
@@ -146,7 +147,8 @@ function render(){
  $('#detail-header').hidden=!isDetail;$('#detail-screen').hidden=!isDetail;$('#detail-actions').hidden=!isDetail;$('.bottom-nav').hidden=isDetail;$('.footnote').hidden=home||isDetail||isSaved;
  $('.app').classList.toggle('detail-view',isDetail);
  $('.app').classList.toggle('home-view',home);
- $('#home-providers').textContent=sourceKeys().map(key=>sources[key].name).join(' · ');
+ $('#home-providers').dataset.kind=state.kind;
+ $('#home-providers').innerHTML=sourceKeys().map(key=>`<li><img data-logo="${key}" src="./assets/service-logos/${sourceLogos[key]}" alt="${sources[key].name}" decoding="async"></li>`).join('');
  $('#home-screen').hidden=!home;$('#home-header').hidden=!home;$('#results-header').hidden=home||isDetail;$('#browse-screen').hidden=home||isDetail;
  $('.app').classList.toggle('results-view',!home&&!isDetail);
  $('.app').classList.toggle('menu-view',isMenu);
@@ -168,7 +170,7 @@ function render(){
  $('.search-banner').hidden=home||isMenu;
  $('#source-tabs').hidden=isMenu;
  $('.results-heading').hidden=isSaved;
- document.title=home?'USED — 찾던 중고, 한곳에':state.page==='saved'?'찜한 매물 — USED':state.page==='services'?'둘러보기 — USED':`${state.query?state.query+' 검색 결과':'검색 결과'} — USED`;
+ document.title=home?'USED — 좋은매물, 한곳에서':state.page==='saved'?'찜한 매물 — USED':state.page==='services'?'둘러보기 — USED':`${state.query?state.query+' 검색 결과':'검색 결과'} — USED`;
  syncRoute();
  const active=document.activeElement;const focusKey=['save','source','suggest'].find(key=>active?.dataset?.[key]);const focusValue=focusKey?active.dataset[focusKey]:null;const focusIndex=focusKey==='save'?[...document.querySelectorAll('[data-save]')].indexOf(active):0;
  document.querySelectorAll('[data-kind]').forEach(e=>{e.classList.toggle('active',e.dataset.kind===state.kind);e.setAttribute('aria-pressed',e.dataset.kind===state.kind);});

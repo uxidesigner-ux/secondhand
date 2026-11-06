@@ -187,7 +187,12 @@ h2 { font-size: var(--font-subheading); line-height: 1.45; }
 #home-search-form button svg { width: 22px; height: 22px; }
 .home-view .suggestions { justify-content: center; margin: 16px 0 22px; gap: 8px; }
 .home-view .suggestions button { border: 0; background: #f5f6f8; padding: 9px 14px; }
-.home-providers { margin: 0; text-align: center; color: var(--text-secondary); font-size: var(--font-caption); line-height: 1.8; }
+.home-providers { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: center; gap: 8px 20px; max-width: 320px; margin: 0 auto; padding: 0; list-style: none; }
+.home-providers[data-kind="car"] { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.home-providers li { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; }
+.home-providers img { display: block; width: 112px; height: 28px; max-width: 100%; object-fit: contain; }
+.home-providers img[data-logo="daangn"] { width: 80px; height: 44px; }
+.home-providers[data-kind="car"] img { height: 40px; }
 .home-utilities { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 24px; margin-top: 28px; }
 .home-utilities button { min-height: 44px; padding: 8px 0; font-size: var(--font-caption); color: var(--text-secondary); font-weight: 500; }
 .home-utilities .home-install { gap: 6px; }

@@ -9,7 +9,7 @@ test('native sharing passes only the fixed service entrance and preserves its re
     location:{href:'https://used-search-api.vercel.app/?token=private&lat=37.5#private'},
     async share(data){
       assert.equal(this,browser);
-      assert.deepEqual(data,{title:'USED',text:'찾던 중고, 한곳에서.',url});
+      assert.deepEqual(data,{title:'USED',text:'좋은매물, 한곳에서',url});
     },
     clipboard:{writeText(){assert.fail('Successful native sharing must not copy');}},
   };
