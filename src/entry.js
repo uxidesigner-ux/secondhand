@@ -1,8 +1,8 @@
-import {createSplash} from './splash.js?v=1.4.1';
+import {createSplash} from './splash.js?v=1.4.2';
 
 const splash=createSplash();
 try {
-const {getCanonicalRedirect}=await import('./config.js?v=1.4.1');
+const {getCanonicalRedirect}=await import('./config.js?v=1.4.2');
 splash.advance(25);
 const destination=getCanonicalRedirect(location.href);
 if(destination){
@@ -28,7 +28,7 @@ if(destination){
   location.replace(destination);
 }else{
   splash.advance(40);
-  const app=await import('./app.js?v=1.4.1');
+  const app=await import('./app.js?v=1.4.2');
   await app.appReady;
   splash.advance(90);
   await splash.finish();
