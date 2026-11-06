@@ -61,7 +61,7 @@ export function normalizeCarDetail(raw, expectedItem) {
 }
 
 const browserEncarDetail = async options => {
-  const {fetchEncarDetailInBrowser} = await import('./providers/encar-detail.js?v=1.6.1');
+  const {fetchEncarDetailInBrowser} = await import('./providers/encar-detail.js?v=1.7.0');
   return fetchEncarDetailInBrowser(options);
 };
 const detailError = (code, message) => Object.assign(new Error(message), {code});

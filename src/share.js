@@ -1,4 +1,4 @@
-import {SERVICE_SHARE_URL} from './config.js?v=1.6.1';
+import {SERVICE_SHARE_URL} from './config.js?v=1.7.0';
 
 /** Call directly from a click so the native share sheet keeps user activation. */
 export async function shareService(browser=typeof navigator==='undefined'?{}:navigator) {
